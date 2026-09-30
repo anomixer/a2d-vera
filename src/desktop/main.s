@@ -130,11 +130,6 @@ loop:
         ;; Get an event
         jsr     GetNextEvent
 
-        ;; Continue with normal event processing
-        tay                     ; vera_present preserves Y and returns it in A
-        JSR_TO_AUX ::vera_lc::vera_present
-        tya
-
         ;; Sample modifiers as close to event as possible
         pha
         jsr     ComputeModifiers
@@ -15202,39 +15197,7 @@ str_new_folder:
 str_date_and_time:
         PASCAL_STRING .concat(kFilenameDADir, "/", res_filename_control_panels, "/", res_filename_date_and_time)
 
-
-.macro vset_main ofs, val
-        ldy     #ofs
-        lda     #val
-        sta     ($02),y
-.endmacro
-
-.proc vera_video_setup
-        ::vera_main_slot := *+1
-        lda     #$00
-        sta     $03
-        lda     #$00
-        sta     $02
-        vset_main $05, $00
-        vset_main $09, $00
-        vset_main $0A, $70
-        vset_main $0B, $33
-        vset_main $0C, $00
-        vset_main $0D, $04
-        vset_main $0E, $00
-        vset_main $0F, $01
-        vset_main $10, $00
-        vset_main $11, $00
-        vset_main $12, $00
-        vset_main $13, $00
-        vset_main $05, $02
-        vset_main $09, $00
-        vset_main $0A, 160
-        vset_main $0B, $00
-        vset_main $0C, 240
-        vset_main $05, $00
-        rts
-.endproc
+;;; ============================================================
 
 .endscope ; main
 

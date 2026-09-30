@@ -9,25 +9,6 @@ the DeskTop app with both main memory and aux memory segments, filling
 everything from $4000 to $FFFF (except for I/O space and ProDOS), and
 still having more code segments swapped in dynamically.
 
-## VERA Display Driver
-
-`vera/driver/vera_drv.s` initializes a VERA graphics board (Adrian's Digital Basement
-VERA card) in slot 2 and mirrors the DeskTop's double-hi-res framebuffer
-onto VERA's VGA output as a 640x480 1bpp bitmap. The current build assumes a
-VERA card is installed in slot 2; automatic detection and no-card fallback
-still need implementation and verification.
-
-The 560x192 DHGR source is stored as a 1bpp image in VERA VRAM and scaled
-by the display composer to fill 640x480. The framebuffer uses 38,400 bytes;
-the composer scaling does not require a larger bitmap.
-
-The driver runs from the unused tail of the auxiliary RAM segment, which
-keeps the ProDOS main language-card banks available for resident drivers
-such as VeraSD-IFS-ProDOS. The current build selects slot 2 directly; automatic detection across slots
-1-7 is not yet verified. It initializes after the desktop is drawn
-and mirrors DHGR once after UI events settle. The blitter selects main DHGR
-memory with PAGE1 while its code continues executing from auxiliary RAM.
-
 ## File Structure
 
 The file is broken down into multiple segments:

@@ -1,5 +1,5 @@
 from pathlib import Path
-src = Path('out/A2DeskTop.po')
+src = Path('vera/images/A2DeskTop-base.po')
 dst = Path('vera/images/A2DeskTop-VERA.po')
 dst.parent.mkdir(parents=True, exist_ok=True)
 img = bytearray(src.read_bytes())

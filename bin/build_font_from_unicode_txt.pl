@@ -16,11 +16,6 @@ use FindBin;
 use lib "$FindBin::Bin";
 use Transcode;
 
-sub chomp_line {
-  chomp;
-  s/\r\z//; # Accept CRLF source files on Unix/MinGW Perl too.
-}
-
 my $lang = shift or die "Usage: $0 lang < font.unicode.txt > font.lang\n";
 
 # Note: MGTK supports smaller fonts.
@@ -53,24 +48,24 @@ sub from2 { unpack("N", pack("B32", substr("0" x 32 . shift, -32))); }
 # Read source file
 # --------------------------------------------------
 
-$_ = <STDIN>; chomp_line();
+$_ = <STDIN>; chomp;
 die "expected type (line $.)\n" unless m/^type: (\d+)$/;
 my $type = $1;
 die "only types 0x00/0x80 supported (line $.)\n" unless $type == 0x00 || $type == 0x80;
 
-$_ = <STDIN>; chomp_line();
+$_ = <STDIN>; chomp;
 die "expected height (line $.)\n" unless m/^height: (\d+)$/;
 my $height = $1;
 
 my @widths = ();
 my @chars = ();
 while ($_ = <STDIN>) {
-  chomp_line();
+  chomp;
   die "expected char header, saw $_ (line $.)\n" unless m/^== U\+([0-9A-F]{4}) ==$/i;
   my $c = hex($1);
 
   for (my $r = 0; $r < $height; ++$r) {
-    $_ = <STDIN>; chomp_line();
+    $_ = <STDIN>; chomp;
     die "expected bitmap, saw $_ (line $.)\n" unless m/^[.#]*$/;
     my $len = length($_);
     if (defined $widths[$c]) {

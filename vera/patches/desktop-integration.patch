@@ -1,0 +1,268 @@
+--- a/bin/build_font_from_unicode_txt.pl
++++ b/bin/build_font_from_unicode_txt.pl
+@@ -15,6 +15,11 @@
+ use FindBin;
+ use lib "$FindBin::Bin";
+ use Transcode;
++
++sub chomp_line {
++  chomp;
++  s/\r\z//; # Accept CRLF source files on Unix/MinGW Perl too.
++}
+ 
+ my $lang = shift or die "Usage: $0 lang < font.unicode.txt > font.lang\n";
+ 
+@@ -48,24 +53,24 @@
+ # Read source file
+ # --------------------------------------------------
+ 
+-$_ = <STDIN>; chomp;
++$_ = <STDIN>; chomp_line();
+ die "expected type (line $.)\n" unless m/^type: (\d+)$/;
+ my $type = $1;
+ die "only types 0x00/0x80 supported (line $.)\n" unless $type == 0x00 || $type == 0x80;
+ 
+-$_ = <STDIN>; chomp;
++$_ = <STDIN>; chomp_line();
+ die "expected height (line $.)\n" unless m/^height: (\d+)$/;
+ my $height = $1;
+ 
+ my @widths = ();
+ my @chars = ();
+ while ($_ = <STDIN>) {
+-  chomp;
++  chomp_line();
+   die "expected char header, saw $_ (line $.)\n" unless m/^== U\+([0-9A-F]{4}) ==$/i;
+   my $c = hex($1);
+ 
+   for (my $r = 0; $r < $height; ++$r) {
+-    $_ = <STDIN>; chomp;
++    $_ = <STDIN>; chomp_line();
+     die "expected bitmap, saw $_ (line $.)\n" unless m/^[.#]*$/;
+     my $len = length($_);
+     if (defined $widths[$c]) {
+--- a/src/desktop/Makefile
++++ b/src/desktop/Makefile
+@@ -23,7 +23,7 @@
+ 	rm -f $(OUTDIR)/*.tmp
+ 	rm -f $(TARGETS)
+ 
+-$(OUTDIR)/desktop.o: desktop.s $(HEADERS) loader.s auxmem.s lc.s res.s main.s init.s ovl*.s ../disk_copy/disk_copy.inc ../mgtk/mgtk.s $(foreach TK,$(TOOLKITS),../toolkits/$(TK).s) ../inc/pdload.dat
++$(OUTDIR)/desktop.o: desktop.s $(HEADERS) loader.s auxmem.s lc.s ../../vera/driver/vera_drv.s ../../vera/driver/vera_lc.s res.s main.s init.s ovl*.s ../disk_copy/disk_copy.inc ../mgtk/mgtk.s $(foreach TK,$(TOOLKITS),../toolkits/$(TK).s) ../inc/pdload.dat
+ 	ca65 $(CAFLAGS) --listing $(basename $@).list -o $@ $<
+ 
+ $(OUTDIR)/%.built: $(OUTDIR)/%.o ../common/asm.cfg
+--- a/src/desktop/README.md
++++ b/src/desktop/README.md
+@@ -8,6 +8,25 @@
+ the DeskTop app with both main memory and aux memory segments, filling
+ everything from $4000 to $FFFF (except for I/O space and ProDOS), and
+ still having more code segments swapped in dynamically.
++
++## VERA Display Driver
++
++`vera/driver/vera_drv.s` initializes a VERA graphics board (Adrian's Digital Basement
++VERA card) in slot 2 and mirrors the DeskTop's double-hi-res framebuffer
++onto VERA's VGA output as a 640x480 1bpp bitmap. The current build assumes a
++VERA card is installed in slot 2; automatic detection and no-card fallback
++still need implementation and verification.
++
++The 560x192 DHGR source is stored as a 1bpp image in VERA VRAM and scaled
++by the display composer to fill 640x480. The framebuffer uses 38,400 bytes;
++the composer scaling does not require a larger bitmap.
++
++The driver runs from the unused tail of the auxiliary RAM segment, which
++keeps the ProDOS main language-card banks available for resident drivers
++such as VeraSD-IFS-ProDOS. The current build selects slot 2 directly; automatic detection across slots
++1-7 is not yet verified. It initializes after the desktop is drawn
++and mirrors DHGR once after UI events settle. The blitter selects main DHGR
++memory with PAGE1 while its code continues executing from auxiliary RAM.
+ 
+ ## File Structure
+ 
+--- a/src/desktop/auxmem.s
++++ b/src/desktop/auxmem.s
+@@ -616,6 +616,10 @@
+         rts
+ .endproc ; FlipMGTKHiresTable
+ 
++        ;; Keep the driver in auxiliary RAM so it does not consume the
++        ;; resident main-memory language-card space used by other drivers.
++        .include "../../vera/driver/vera_drv.s"
++
+ ;;; ============================================================
+ 
+ .endscope ; aux
+--- a/src/desktop/init.s
++++ b/src/desktop/init.s
+@@ -973,19 +973,30 @@
+         ;; Final MGTK configuration
+         MGTK_CALL MGTK::CheckEvents
+         jsr     main::SetCursorPointer ; after the rest of initialization
+-        PUSH_RETURN_ADDRESS main::MainLoop
+-
+-        ;; Skip the rest if both Open Apple and Solid Apple down
++
++        ;; Restore state from previous session FIRST
++        ;; (before VERA init, so we capture the complete state)
+         lda     BUTN0
+         and     BUTN1
+-        RTS_IF NS
+-
+-        ;; Restore state from previous session
+-        jsr     RestoreWindows
+-
+-        ;; Window restoration can safely trash anything before this
+-        ;; point, but needs to be able to return here to finish up.
+-        .assert * >= (DIR_READ_DATA_BUFFER + kDirReadDataBufferSize), error, "data/code clash"
++        bpl     :+              ; if not both apples, do restore
++        jmp     skip_restore
++:       jsr     RestoreWindows
++
++skip_restore:
++        ;; Restoring windows can repaint over the menu bar. Reinstalling the
++        ;; menu redraws its background and every menu title through MGTK.
++        MGTK_CALL MGTK::SetMenu, aux::desktop_menu
++
++        ;; NOW initialize VERA and capture the complete desktop
++        JSR_TO_AUX aux::vera_init
++
++        ;; Update the clock after the full menu bar has been restored.
++        jsr     main::ShowClock
++
++        ;; Capture any clock update as well.
++        JSR_TO_AUX aux::vera_blit_now
++
++        PUSH_RETURN_ADDRESS main::MainLoop
+ 
+         ;; Display any pending error messages
+         pending_alert := *+1
+@@ -1073,7 +1084,8 @@
+         add16_8 data_ptr, #.sizeof(DeskTopFileItem)
+     FOREVER
+ 
+-exit:   jmp     main::CacheDesktopIconList
++exit:   jsr     main::CacheDesktopIconList
++        rts
+ 
+ .proc _MaybeOpenWindow
+         ;; Save stack for restore on error. If the call
+@@ -1090,6 +1102,7 @@
+ 
+         .assert * <= data_buf, error, "data/code clash"
+ 
++
+ ;;; ============================================================
+ 
+ .endscope ; init
+--- a/src/desktop/lc.s
++++ b/src/desktop/lc.s
+@@ -9,6 +9,7 @@
+ ;;; ============================================================
+ 
+         BEGINSEG SegmentDeskTopLC
++
+ 
+ ;;; ============================================================
+ ;;; Exported entry points for main>aux and aux>main calls
+@@ -575,6 +576,44 @@
+ 
+ ;;; ============================================================
+ 
+-        .include "res.s"
++;;; Read one DHGR scanline from auxiliary and main RAM into the
++;;; interleaved 80-byte row buffer used by the VERA mirror. This code
++;;; must live in language-card RAM: RAMRD changes the $0200-$BFFF bank,
++;;; but does not change the language-card mapping at $D000.
++
++.proc vera_copy_dhr_row
++        ;; With 80STORE enabled, PAGE2 selects AUX DHGR RAM and PAGE1
++        ;; selects MAIN DHGR RAM. This matches MGTK's DHGRFillLine path.
++        ;;
++        ;; Read 40 bytes from AUX (interleaved as even positions)
++        lda     #0
++        sta     HISCR
++        ldy     #0
++        ldx     #0
++.aux:   lda     (aux::SRC_ZP),y
++        sta     aux::packed_src,x
++        inx
++        inx
++        iny
++        cpy     #40
++        bne     .aux
++
++        ;; MAIN bytes fill the odd positions.
++        lda     #0
++        sta     LOWSCR
++        ldy     #0
++        ldx     #1
++.main:  lda     (aux::SRC_ZP),y
++        sta     aux::packed_src,x
++        inx
++        inx
++        iny
++        cpy     #40
++        bne     .main
++        rts
++.endproc ; vera_copy_dhr_row
++
++.include "res.s"
++.include "../../vera/driver/vera_lc.s"
+ 
+         ENDSEG SegmentDeskTopLC
+--- a/src/desktop/main.s
++++ b/src/desktop/main.s
+@@ -129,6 +129,11 @@
+ 
+         ;; Get an event
+         jsr     GetNextEvent
++
++        ;; Continue with normal event processing
++        tay                     ; vera_present preserves Y and returns it in A
++        JSR_TO_AUX ::vera_lc::vera_present
++        tya
+ 
+         ;; Sample modifiers as close to event as possible
+         pha
+@@ -15197,7 +15202,39 @@
+ str_date_and_time:
+         PASCAL_STRING .concat(kFilenameDADir, "/", res_filename_control_panels, "/", res_filename_date_and_time)
+ 
+-;;; ============================================================
++
++.macro vset_main ofs, val
++        ldy     #ofs
++        lda     #val
++        sta     ($02),y
++.endmacro
++
++.proc vera_video_setup
++        ::vera_main_slot := *+1
++        lda     #$00
++        sta     $03
++        lda     #$00
++        sta     $02
++        vset_main $05, $00
++        vset_main $09, $00
++        vset_main $0A, $70
++        vset_main $0B, $33
++        vset_main $0C, $00
++        vset_main $0D, $04
++        vset_main $0E, $00
++        vset_main $0F, $01
++        vset_main $10, $00
++        vset_main $11, $00
++        vset_main $12, $00
++        vset_main $13, $00
++        vset_main $05, $02
++        vset_main $09, $00
++        vset_main $0A, 160
++        vset_main $0B, $00
++        vset_main $0C, 240
++        vset_main $05, $00
++        rts
++.endproc
+ 
+ .endscope ; main
+ 

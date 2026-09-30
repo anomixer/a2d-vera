@@ -10,7 +10,6 @@
 
         BEGINSEG SegmentDeskTopLC
 
-
 ;;; ============================================================
 ;;; Exported entry points for main>aux and aux>main calls
 
@@ -576,44 +575,6 @@ do_nibble:
 
 ;;; ============================================================
 
-;;; Read one DHGR scanline from auxiliary and main RAM into the
-;;; interleaved 80-byte row buffer used by the VERA mirror. This code
-;;; must live in language-card RAM: RAMRD changes the $0200-$BFFF bank,
-;;; but does not change the language-card mapping at $D000.
-
-.proc vera_copy_dhr_row
-        ;; With 80STORE enabled, PAGE2 selects AUX DHGR RAM and PAGE1
-        ;; selects MAIN DHGR RAM. This matches MGTK's DHGRFillLine path.
-        ;;
-        ;; Read 40 bytes from AUX (interleaved as even positions)
-        lda     #0
-        sta     HISCR
-        ldy     #0
-        ldx     #0
-.aux:   lda     (aux::SRC_ZP),y
-        sta     aux::packed_src,x
-        inx
-        inx
-        iny
-        cpy     #40
-        bne     .aux
-
-        ;; MAIN bytes fill the odd positions.
-        lda     #0
-        sta     LOWSCR
-        ldy     #0
-        ldx     #1
-.main:  lda     (aux::SRC_ZP),y
-        sta     aux::packed_src,x
-        inx
-        inx
-        iny
-        cpy     #40
-        bne     .main
-        rts
-.endproc ; vera_copy_dhr_row
-
-.include "res.s"
-.include "../../vera/driver/vera_lc.s"
+        .include "res.s"
 
         ENDSEG SegmentDeskTopLC
