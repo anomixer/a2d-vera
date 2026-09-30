@@ -11,7 +11,7 @@ still having more code segments swapped in dynamically.
 
 ## VERA Display Driver
 
-`vera_drv.s` initializes a VERA graphics board (Adrian's Digital Basement
+`vera/driver/vera_drv.s` initializes a VERA graphics board (Adrian's Digital Basement
 VERA card) in slot 2 and mirrors the DeskTop's double-hi-res framebuffer
 onto VERA's VGA output as a 640x480 1bpp bitmap. The current build assumes a
 VERA card is installed in slot 2; automatic detection and no-card fallback

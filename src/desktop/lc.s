@@ -614,6 +614,6 @@ do_nibble:
 .endproc ; vera_copy_dhr_row
 
 .include "res.s"
-.include "vera_lc.s"
+.include "../../vera/driver/vera_lc.s"
 
         ENDSEG SegmentDeskTopLC
