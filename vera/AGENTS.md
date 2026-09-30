@@ -16,7 +16,9 @@ This directory contains the VERA display driver, disk images, verification tools
 
 - `driver/vera_drv.s` — VERA detection/configuration, presentation path, and DHGR-to-VRAM blitter.
 - `driver/vera_lc.s` — language-card resident VERA helper routines.
-- `patches/desktop-integration.patch` — the changes needed to integrate the VERA driver into the original DeskTop sources, including the CRLF font-parser fix.
+- `src/` — VERA-owned replacements for original DeskTop source and build configuration files. Only these copies are used in the VERA build.
+- `bin/` — VERA-owned build utility replacements, including the CRLF font-parser fix and generated build metadata path.
+- `build.py` and `Makefile` — create an isolated build workspace from an original a2d checkout, overlay VERA-owned files, build the module, and package the disk image.
 - `images/` — base and VERA-enabled ProDOS disk images.
 - `tools/verify_vera.py` — compares captured VERA VRAM with the DHGR source in a save state.
 - `tools/inspect_prodos.py` — inserts the built DeskTop module into `images/A2DeskTop-base.po` and writes `images/A2DeskTop-VERA.po`.
@@ -27,24 +29,24 @@ This directory contains the VERA display driver, disk images, verification tools
 - The DeskTop framebuffer is 560x192 DHGR. Each scanline consists of 40 seven-bit AUX bytes and 40 seven-bit MAIN bytes in alternating display order.
 - VERA Layer 0 is configured as a 640-pixel-wide, 1bpp bitmap at VRAM `$00000`, with an 80-byte row stride. The blitter packs each 560-pixel DHGR row into 70 bytes; the remaining row bytes are padding. The framebuffer occupies 38,400 bytes.
 - The VERA composer scales the bitmap to the 640x480 VGA output. Do not exceed the 128 KB VRAM capacity.
-- `driver/vera_drv.s` resides in the auxiliary-memory segment. `driver/vera_lc.s` and the DHGR row-copy helper in `src/desktop/lc.s` use the language-card segment for safe AUX/MAIN reads.
+- `driver/vera_drv.s` resides in the auxiliary-memory segment. `driver/vera_lc.s` and the DHGR row-copy helper in `vera/src/desktop/lc.s` use the language-card segment for safe AUX/MAIN reads.
 - Resident segments have very little free space. Check the linker map after code changes and keep new code within the available padding.
 - Re-establish VERA zero-page pointers at driver entry points because Desk Accessories share zero page and may overwrite them.
 - Do not reset VERA during initialization. Configure only the video registers required by this driver so a co-resident SD driver is not disturbed.
 
 ## Build and image packaging
 
-The original DeskTop source files are kept unchanged in this checkout. To build the VERA variant, create a disposable checkout of the original `a2d` source, copy this `vera/` directory into its root, and apply the integration patch there. From the root of that disposable checkout:
+The original DeskTop source files are kept unchanged. Build from the pristine source tree at `C:\dev\org\a2d` (or specify another original checkout). The build script creates a disposable workspace under `vera/build/workspace`, uses the original files as its base, and overlays files from `vera/src/` and `vera/bin/`. It does not modify the original source tree or create a root-level `out/` directory.
 
-```sh
-export PATH="/c/dev/cc65/bin:$PATH"
-git apply --check vera/patches/desktop-integration.patch
-git apply vera/patches/desktop-integration.patch
-make -C src/desktop
-python vera/tools/inspect_prodos.py
+```powershell
+make -C vera build
+# Or choose another original source checkout:
+make -C vera build A2D_SOURCE=C:/path/to/original/a2d
 ```
 
-The integration patch touches only the disposable checkout. `make -C src/desktop` writes generated files to that checkout's root-level `out/` directory. `inspect_prodos.py` reads `vera/images/A2DeskTop-base.po` and writes `vera/images/A2DeskTop-VERA.po`. Close AppleWin before replacing a mounted image. The generated `out/` directory can be removed after packaging.
+Generated build files stay below `vera/build/workspace/vera/build/generated`; the packaged image is copied to `vera/images/A2DeskTop-VERA.po`. Close AppleWin before building if that image is mounted. Remove the disposable source copy and generated files with `make -C vera clean`.
+
+The event path marks VERA output dirty when an event arrives. The VERA-owned `main::SystemTask` copy calls `vera_present` after its periodic drawing work, so the frame is flushed after the main event handler completes and during nested modal loops. Copying immediately after `GetNextEvent` captures the old DHGR frame. The VERA build relocates `GetTickCount` and its counter into the shared LC segment to keep the overlay-sensitive main segment within its address limit. The latest build has 15 bytes of LC padding, 67 bytes of AUX padding, and 173 bytes of main padding; check the linker map after any code changes.
 
 ## AppleWin run and verification
 
@@ -66,7 +68,7 @@ A passing result reports that all 192 DHGR rows match. Verify window redraws int
 ## Outstanding work
 
 1. Repair and validate slot detection. Test slots 2 and 4 in AppleWin, then slots 1-7 on hardware when available.
-2. Open a volume or folder and verify the complete window contents repaint to VERA after UI events.
+2. Interactively open a menu, volume/folder, and About window; confirm each redraw appears on VERA. The event-timing fix builds successfully but still needs this interactive confirmation.
 3. Run DeskTop with VeraSD-IFS-ProDOS in the same system and verify SD reads while VERA output is active.
 4. Validate output on a physical VERA card.
 

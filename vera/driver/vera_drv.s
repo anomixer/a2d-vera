@@ -245,7 +245,6 @@ dhr_row_hi := mgtk::hires_table_hi
 vera_enabled:   .byte   0
 vera_hi:        .byte   0
 vera_probe_hi:  .byte   0
-vera_need_blit: .byte   0
 vera_event_kind:.byte   0
 packed_src:     .res    80
 row_y:          .byte   0

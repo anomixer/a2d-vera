@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+
+# Generate `vera/build/generated/buildinfo.inc` based off last commit and tag
+
+set -e
+cd "$(dirname "$0")/.."
+source "bin/util.sh"
+
+resfile="src/common/res/common.res.${lang}"
+
+yyyy="$(git log -1 --format="%ad" --date=format:%Y)"
+yy="$(git log -1 --format="%ad" --date=format:%y)"
+mm="$(git log -1 --format="%ad" --date=format:%m)"
+dd="$(git log -1 --format="%ad" --date=format:%d)"
+
+month="$(grep -E "\bres_string_month_name_$((10#$mm))\b" "$resfile" | cut -d'"' -f2)"
+order="$(grep -E "\bres_const_date_order\b" "$resfile" | cut -d' ' -f3)"
+if [ "$order" = "0" ]; then
+    date="$month $((10#$dd)), $yyyy"
+else
+    date="$((10#$dd)) $month $yyyy"
+fi
+
+if [ "$supports_lowercase" != "1" ]; then
+  vsuffix="$(echo "$vsuffix" | tr 'a-z' 'A-Z')"
+fi
+
+OUTDIR="vera/build/generated"
+mkdir -p "$OUTDIR"
+
+# Generate tmp file
+TMPFILE="$(mktemp)"
+cat > "$TMPFILE"  <<EOF
+.define kBuildDate "$date"
+kBuildYYYY = $yyyy
+kBuildYY   = $yy
+kBuildMM   = $mm
+kBuildDD   = $dd
+.define kDeskTopVersionSuffix "$vsuffix"
+EOF
+
+# Only generate real file if it doesn't exist or changed
+if [ -r "$OUTDIR/buildinfo.inc" ]; then
+  cmp --silent "$TMPFILE" "$OUTDIR/buildinfo.inc" || \
+    mv -f "$TMPFILE" "$OUTDIR/buildinfo.inc"
+else
+  mv -f "$TMPFILE" "$OUTDIR/buildinfo.inc"
+fi
+rm -f "$TMPFILE"

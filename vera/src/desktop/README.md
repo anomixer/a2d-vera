@@ -1,0 +1,278 @@
+# DeskTop
+
+This is the main application, presenting a desktop and windows with
+icons for volumes and files, commands and gestures for moving and
+copying files and manipulating disks.
+
+The program file (`DESKTOP`) is large - 89k. It includes a loader and
+the DeskTop app with both main memory and aux memory segments, filling
+everything from $4000 to $FFFF (except for I/O space and ProDOS), and
+still having more code segments swapped in dynamically.
+
+## VERA Display Driver
+
+The VERA variant mirrors the DeskTop DHGR framebuffer to a 640x480 VGA display. Its driver and the source/build replacements used to integrate it are maintained under the repository-level `vera/` directory. The build starts from an original a2d source tree and overlays only the VERA-owned copies under `vera/src/` and `vera/bin/`; the original source files remain unchanged.
+
+The DHGR source is 560x192. VERA Layer 0 uses a 640-pixel-wide 1bpp bitmap with an 80-byte row stride; each source row is packed into 70 bytes, and the composer scales the image to fill the output. The bitmap uses 38,400 bytes of VERA's 128 KB VRAM.
+
+The VERA build currently uses slot 2 in AppleWin. Slot detection, interactive window repaint, VeraSD-IFS-ProDOS runtime coexistence, and physical-card output remain to be verified.
+
+## File Structure
+
+The file is broken down into multiple segments:
+
+| Purpose            | Bank    | Address | Sources               |
+|--------------------|---------|---------|-----------------------|
+| Bootstrap          | Main    | $2000   | `../lib/bootstrap.s`  |
+| Loader             | Main    | A$2000  | `loader.s`            |
+| Toolkits+Resources | Aux     | A$4000  | `auxmem.s`            |
+| Relays+Resources   | Aux LC1 | A$D000  | `lc.s`,`res.s`        |
+| Application Logic  | Main    | A$4000  | `main.s`              |
+| Initializer        | Main    | A$0800  | `init.s`              |
+| Invoker            | Main    | A$0290  | `../lib/invoker.s`    |
+| Format/Erase       | Main    | A$0800  | `ovl_format_erase.s`  |
+| Shortcut Picker    | Main    | A$5000  | `ovl_selector_pick.s` |
+| File Dialog        | Main    | A$B600  | `ovl_file_dialog.s`   |
+| File Copy          | Main    | A$B500  | `ovl_file_copy.s`     |
+| Shortcut Editor    | Main    | A$B200  | `ovl_selector_edit.s` |
+
+Lengths/offsets are defined in `desktop.s`. Segments are padded in the
+file to ensure they appear at block boundaries, enabling faster
+loading.
+
+The DeskTop segments loaded into the Aux bank switched ("language
+card") memory can be used from both main and aux, so contain relay
+routines, resources, and buffers. More details below.
+
+A monolithic source file `desktop.s` is used to assemble the entire
+target. It includes other source files for each of the various
+segments.
+
+Note that Disk Copy (see `../disk_copy/`) used to be built into the
+DeskTop binary as well, but has been pulled out.
+
+## Segments and Overlays
+
+### Bootstrap
+
+`../lib/bootstrap.s`
+
+The first $200 bytes are loaded at $2000 by `DESKTOP.SYSTEM`.
+
+Invoked at $2000; patches the ProDOS QUIT routine (at LC2 $D100) then
+invokes it. That gets copied to $1000-$11FF and run by ProDOS. This
+stays resident so quitting from subsequent programs will re-run it.
+
+The quit handler stashes the current prefix and re-patches ProDOS with
+itself. It then loads in Loader segment of DeskTop and invokes it.
+
+### Loader
+
+`loader.s`
+
+This code then loads the rest of the file as a sequence of segments,
+moving them to the appropriate destination in aux/banked/main memory.
+
+### Invoker
+
+`../lib/invoker.s`
+
+Loaded at $290-$03EF, this small routine is used to invoke a target,
+e.g. a double-clicked file. System files are loaded/run at $2000,
+binary files at the location specified by their aux type, and BASIC
+files loaded by searching for BASIC.SYSTEM and running it with the
+pathname passed at $2006 (see ProDOS TLM). Other file types are
+invoked using BASIS.SYSTEM, if present.
+
+### Initializer
+
+(in `init.s`)
+
+Loaded at $800, this does one-time initialization of the DeskTop. It
+is later overwritten as general buffer space, when any desk
+accessories are run, the Format/Erase overlay is needed, etc.
+
+### "DeskTop" Application
+
+The main application includes:
+* `main.s`
+* `auxmem.s`
+* `lc.s`
+* `res.s`
+
+DeskTop application code is in the lower 48k of the Main bank. Aux
+memory is used for toolkits (MouseGraphics, Icons, Buttons, etc),
+Alert code, and resources like strings that need to be visible to
+these toolkits. Aux LC memory is used for resources and buffers that
+need to be visible to both Main memory (application logic) and Aux
+memory (toolkits), like dynamic strings drawn on string. A small bit
+of code resides in LC memory for relaying calls between Main and Aux.
+
+When running, memory use includes:
+
+* Main
+ * $800-$1BFF is used as scratch space for a variety of routines.
+   * Desk Accessories load into this space.
+ * $1C00-$1FFF is used as a 1k ProDOS I/O buffer.
+ * $2000-$3FFF is the hires graphics page.
+ * $4000-$BEFF (`main.s`) is the main app logic.
+ * Memory above ~$AE00 is free, and used for file copy buffers and overlays
+
+($C000-$CFFF is reserved for I/O, and main $BF page and language card is ProDOS)
+
+* Aux
+ * $E00-$1FFF is a "save area"; used by MGTK to store the background
+     when menus are drawn so it can be restored without redrawing. The
+     save area is also used by DeskTop to save the background for
+     alert dialogs, and icon outlines when dragging - basically, any
+     modal operation.
+   * Desk Accessories can use this space.
+ * $2000-$3FFF is the hires graphics page.
+ * $4000-$BFFF (`auxmem.s`) includes these:
+   * [MouseGraphics ToolKit](../mgtk/MGTK.md)
+   * Resources, including icons, font, menu definitions, etc.
+   * [Icon ToolKit](APIs.md)
+   * [LineEdit ToolKit](../toolkits/LETK.md)
+   * [Button ToolKit](../toolkits/BTK.md)
+   * [ListBox ToolKit](../toolkits/LBTK.md)
+   * [Option Picker ToolKit](../toolkits/OPTK.md)
+   * Alert dialog resources/code
+
+...and in the Aux language card area (accessible from both aux and
+main code) are relays, buffers and resources:
+
+* Aux LC
+ * $D000-$FFFF
+   * main-to-aux relay calls (`lc.s`)
+   * resources (menus, strings, window) (`res.s`)
+   * buffer for IconEntries
+
+The Aux memory language card bank 2 ($D000-$DFFF) holds `FileRecord`
+entries, 32-byte structures which hold metadata for files in open
+windows. This duplicates some info in the `IconEntry` tables (e.g.
+name) but is used for operations such as alternate view types.
+
+### Overlays
+
+`ovl_*.s`
+
+Interactive commands including disk format/erase, file
+copy/delete, and Shortcuts add/edit/delete/run all dynamically load
+main memory code overlays. When complete, any original code above
+$5000 is reloaded if needed.
+
+Several of the overlays also use a common file selector dialog overlay
+`ovl_file_dialog.s` ($B600-$BEFF).
+
+#### Disk Format/Disk Erase
+
+`ovl_format_erase.s` (Main A$0800-$17FF)
+
+Dialog for device selection, name entry, and progress. And code for
+formatting Disk II devices.
+
+#### File Dialog
+
+`ovl_file_dialog.s` (Main $B600-$BEFF).
+
+Standard file selector, supporting customization.
+
+#### Shortcut Picker - Add/Edit/Delete/Run a Shortcut
+
+`ovl_selector_pick.s` (Main $5000-$57FF)
+
+For Add/Edit uses the Shortcut Editor (`ovl_selector_edit.s` +
+`ovl_file_dialog.s` $B200-$BFFF).
+
+#### Shortcut Editor - Add/Edit a Shortcut
+
+`ovl_selector_edit.s` (Main $B200-$B5FF)
+
+File dialog driver/customization for editing shortcuts. Uses the File Dialog overlay.
+
+#### File Copy
+
+`ovl_file_copy.s` (Main $B500-$B5FF)
+
+File dialog driver for selecting copy destination. Uses the File Dialog overlay.
+
+
+
+## Memory Map
+
+```
+       Main                  Aux                    ROM
+$FFFF +-------------+       +-------------+       +-------------+
+      |.ProDOS......|       | DeskTop     |       |.Monitor.....|
+$F800 |.............|       | Resources/  |       +-------------+
+      |.............|       | Buffers     |       |.Applesoft...|
+      |.............|Bank2  |             |Bank2  |.............|
+$E000 |......+-----------+  |      +-----------+  |.............|
+      |......|.ProDOS..*.|  |      | FileRecs  |  |.............|
+$D000 +------+-----------+  +------+-----------+  +-------------+
+        * = BELLDATA/SETTINGS                     |.I/O.&.......|
+                                                  |.Firmware....|
+$C000 +-------------+       +-------------+       +-------------+
+      |.ProDOS.GP...|       | DeskTop     |
+$BF00 +-------------+       | Utilities & |
+      | Copy Buffer |       | Resources   |
+      | & Overlays  |       |             |
+      |             |       | * ToolKits  |
+$__00 +-------------+       | * Alerts    |
+      | DeskTop     |       |             |
+      | Application |       |             |
+      | Code        |       |             |
+      |             |       |             |
+$9000 |      +------+       |             |
+      |      | Ovl  |       | Font        |
+      |      |      |       +-------------+ $8800
+      |      |      |       | MGTK        |
+      |      |      |       |             |
+      |      |      |       |             |
+      |      |      |       |             |
+      |      |      |       |             |
+      |      |      |       |             |
+      |      |      |       |             |
+$5000 |      +------+       |             |
+      |             |       |             |
+      |             |       |             |
+      |             |       |             |
+      |             |       |             |
+$4000 +-------------+       +-------------+
+      |.Graphics....|       |.Graphics....|
+      |.............|       |.............|
+      |.............|       |.............|
+      |.............|       |.............|
+      |.............|       |.............|
+      |.............|       |.............|
+      |.............|       |.............|
+      |.............|       |.............|
+$2000 +-------------+       +-------------+
+      | Initializer |       | Desk Acc &  |
+      | & Desk Acc  |       | Save Area   |
+      | & Overlays  |       |             |
+      | & I/O       |       |             |
+      |             |       |             |
+$0800 +-------------+       +-------------+
+      | Drawing     |       | Drawing     |
+      | Temp Buffer |       | Temp Buffer |
+$0400 +-------------+       +-------------+
+      | Invoker     |       |.ProDOS......|
+$0300 +-------------+       |./RAM.driver.|
+      | Input Buf   |       |.............|
+$0200 +-------------+       +-------------+
+      |.Stack.......|       |.Stack.......|
+$0100 +-------------+       +-------------+
+      | Zero Page   |       | Zero Page   |
+$0000 +-------------+       +-------------+
+```
+
+Memory use by the Disk Copy overlay is not shown. See
+[the Disk Copy README](../disk_copy/README.md).
+
+Desk Accessories can optionally utilize a 16K chunk of main memory,
+e.g. for loading large audio files. This overwrites a large portion of
+DeskTop's application code, which is reloaded from disk once the Desk
+Accessory closes. Code that could be invoked by the DA and any
+persistent state must be placed either before or after this overlay
+zone.

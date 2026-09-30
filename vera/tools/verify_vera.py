@@ -7,7 +7,7 @@ script:
 
   1. Rebuilds the expected 1bpp VERA bitmap from the DeskTop DHGR framebuffer
      (main + aux $2000-$3FFF), using the same algorithm as
-     src/desktop/vera_drv.s (hires_table scanlines, byte-by-byte AUX/MAIN
+     vera/driver/vera_drv.s (hires_table scanlines, byte-by-byte AUX/MAIN
      interleave, 8 source 7-bit bytes -> 7 VERA bytes, MSB=leftmost).
   2. Compares it against the VERA bitmap region in the dumped VRAM
      (rows 0..191 * 80 bytes).
@@ -69,7 +69,7 @@ def read_region(lines, section_name):
     return mem
 
 # --- DHGR hires table (mirror of mgtk hires_table_lo/hi) --------------------
-# 192 entries. lo/hi as in src/desktop/vera_drv.s dhr_row_lo/dhr_row_hi.
+# 192 entries. lo/hi as in vera/driver/vera_drv.s dhr_row_lo/dhr_row_hi.
 # lo: [0 x8, 0x80 x8] x4, then [0x28 x8, 0xA8 x8] x4, then [0x50 x8, 0xD0 x8] x4
 DHR_LO = []
 for lo_lo, lo_hi in ((0x00,0x80),(0x28,0xA8),(0x50,0xD0)):

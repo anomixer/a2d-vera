@@ -91,21 +91,32 @@ OFS_ADDR    = $03
         rts
 .endproc
 
+.proc vera_mark_dirty
+        cpy     #MGTK::EventKind::no_event
+        beq     .done
+        lda     #1
+        sta     vera_need_blit
+.done:  rts
+.endproc
+
 .proc vera_present
-        sty     aux::vera_event_kind
         lda     aux::vera_enabled
         beq     .done
-        cpy     #$00
-        beq     .do_blit
-        cpy     #kEventKindMouseMoved
+        lda     vera_need_blit
         beq     .done
-.do_blit:
+        lda     #0
+        sta     vera_need_blit
         jsr     aux::vera_blit
-.done:
-        ldy     aux::vera_event_kind
-        tya
-        rts
+.done:  rts
 .endproc
+
+vera_need_blit: .byte 0
+
+.proc GetTickCount
+        RETURN  A=tick_counter, X=tick_counter+1, Y=tick_counter+2
+.endproc
+
+tick_counter: .faraddr 0
 
 .proc vera_upload_palette
         jsr     vera_set_zp

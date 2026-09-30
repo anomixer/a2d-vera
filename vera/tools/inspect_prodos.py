@@ -23,7 +23,7 @@ print([(name, hex(e[0]>>4), e[16], e[17]|e[18]<<8, e[19]|e[20]<<8, e[21]|e[22]<<
 entry=next(e for name,e in sub if name=='DESKTOP')
 key=entry[17]|entry[18]<<8
 size=entry[21]|entry[22]<<8|entry[23]<<16
-payload=Path('out/desktop.built').read_bytes()
+payload=Path('vera/build/generated/desktop.built').read_bytes()
 assert len(payload)==size, (len(payload),size)
 index=block(key)
 data_blocks=[index[i] | index[i+256]<<8 for i in range(256)]
