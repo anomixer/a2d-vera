@@ -973,19 +973,30 @@ slot_string_table:
         ;; Final MGTK configuration
         MGTK_CALL MGTK::CheckEvents
         jsr     main::SetCursorPointer ; after the rest of initialization
-        PUSH_RETURN_ADDRESS main::MainLoop
 
-        ;; Skip the rest if both Open Apple and Solid Apple down
+        ;; Restore state from previous session FIRST
+        ;; (before VERA init, so we capture the complete state)
         lda     BUTN0
         and     BUTN1
-        RTS_IF NS
+        bpl     :+              ; if not both apples, do restore
+        jmp     skip_restore
+:       jsr     RestoreWindows
 
-        ;; Restore state from previous session
-        jsr     RestoreWindows
+skip_restore:
+        ;; Restoring windows can repaint over the menu bar. Reinstalling the
+        ;; menu redraws its background and every menu title through MGTK.
+        MGTK_CALL MGTK::SetMenu, aux::desktop_menu
 
-        ;; Window restoration can safely trash anything before this
-        ;; point, but needs to be able to return here to finish up.
-        .assert * >= (DIR_READ_DATA_BUFFER + kDirReadDataBufferSize), error, "data/code clash"
+        ;; NOW initialize VERA and capture the complete desktop
+        JSR_TO_AUX aux::vera_init
+
+        ;; Update the clock after the full menu bar has been restored.
+        jsr     main::ShowClock
+
+        ;; Capture any clock update as well.
+        JSR_TO_AUX aux::vera_blit_now
+
+        PUSH_RETURN_ADDRESS main::MainLoop
 
         ;; Display any pending error messages
         pending_alert := *+1
@@ -1073,7 +1084,8 @@ next:   jsr     PopPointers
         add16_8 data_ptr, #.sizeof(DeskTopFileItem)
     FOREVER
 
-exit:   jmp     main::CacheDesktopIconList
+exit:   jsr     main::CacheDesktopIconList
+        rts
 
 .proc _MaybeOpenWindow
         ;; Save stack for restore on error. If the call
@@ -1089,6 +1101,7 @@ exit:   jmp     main::CacheDesktopIconList
 ;;; ============================================================
 
         .assert * <= data_buf, error, "data/code clash"
+
 
 ;;; ============================================================
 

@@ -616,6 +616,10 @@ AlertById := AlertByIdImpl::start
         rts
 .endproc ; FlipMGTKHiresTable
 
+        ;; Keep the driver in auxiliary RAM so it does not consume the
+        ;; resident main-memory language-card space used by other drivers.
+        .include "vera_drv.s"
+
 ;;; ============================================================
 
 .endscope ; aux
