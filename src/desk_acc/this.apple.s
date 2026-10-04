@@ -2061,7 +2061,7 @@ write:  sta     $C080,x         ; self-modified to $C0n0
 .endproc ; procname
 .endmacro
 
-        ;; Duplicated code, but it's not that long and more maintainble than SMC
+        ;; Duplicated code, but it's not that long and more maintainable than SMC
         CHECK_AUX_MEMORY_PROC CheckRamworksMemory, RAMWORKS_BANK
         CHECK_AUX_MEMORY_PROC CheckSuperExpanderMemory, SUPEREXP_BANK
 

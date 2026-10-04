@@ -12,7 +12,7 @@ DefaultFirstCatalogSector  = $F ; TODO: Use data in VTOC instead
 ;;; TODO: This should be a struct but the offsets would be weird
 .scope VTOC
 FirstCatTrack   = $01 ; +$01 Track number of first catalog sector (usually $11)
-FirstCatSector  = $02 ; +$02 Secto number of first catalog sector (usually $F)
+FirstCatSector  = $02 ; +$02 Sector number of first catalog sector (usually $F)
 ;;;                     +$04-$05 Not used
 VolumeNumber    = $06 ; +$06 Diskette volume number (1-254)
 ;;;                     +$07-$26 Not used

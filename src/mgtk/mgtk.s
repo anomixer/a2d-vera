@@ -5742,7 +5742,7 @@ sysfont_height:     .byte   0
 ;;; With no mark and no shortcut, the padding between the menu item
 ;;; text and the left/right menu edges is kept symmetrical. Since
 ;;; marks can be added dynamically the left padding is sized to
-;;; accomodate this, and the right padding is therefore the same.
+;;; accommodate this, and the right padding is therefore the same.
 no_shortcut_width := offset_text
 
 
