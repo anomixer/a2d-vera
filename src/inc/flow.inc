@@ -1478,7 +1478,7 @@
 ;;; * RETURN args...
 ;;; * FALL_THROUGH_TO proc, args...
 ;;;
-;;; Args take the form of (pseudo-)register or flag assigments, and
+;;; Args take the form of (pseudo-)register or flag assignments, and
 ;;; loads/clears/sets are emitted in the order given. CALL produces a
 ;;; JSR, TAIL_CALL produces a JMP, and RETURN produces RTS.
 ;;; FALL_THROUGH_TO produces nothing, but prevents refactoring

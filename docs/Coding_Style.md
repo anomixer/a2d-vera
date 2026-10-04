@@ -268,6 +268,7 @@ The following macros should be used to improve code readability by eliminating r
   * `ucmp8` for consistency
   * `ldax`/`ldxy`/`stax`/`stxy` for 16-bit load/stores
   * `copy8`/`copy16` for load-then-store
+  * See [MultiByte.md](MultiByte.md) for more details.
   * `jcc`/`jeq`/etc for long branches
 * memory:
   * `COPY_xx` for fixed size copy loops

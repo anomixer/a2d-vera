@@ -21,6 +21,8 @@ For example:
 
 There are [🖥️ Slides](https://docs.google.com/presentation/d/1y72_wSc56TZOk5YtloPLcDa4d26GfsjWRUelq9rCI4w/edit?usp=sharing) that explain more of the rationale behind the library, its evolution, and the code generation.
 
+The library relies heavily on the [Multi-Byte](MultiByte.md) macro library.
+
 ## Branching and Looping
 
 We'll start off introducing the branching statements. See below for the micro-syntax for conditions.
@@ -225,6 +227,8 @@ You can write:
 Function calls are another control flow mechanism, and the library provides another set of statements to improve readability and maintainability.
 
 The syntax here allows specifying register and flag states in the same line as a `JSR` subroutine call (for arguments) or `RTS` subroutine return (for return values) by providing a list of _reg_ = _value_ pairs. Registers can be simple registers (`A`, `X`, `Y`), common register pairs for 16-bit values (`AX`, `AY`, `XY`, `YA`), and flags (`C`, `D`) which can be set to 0 or 1.
+
+For indexed loads, surround the argument with `{` `}`, e.g. `CALL CRC, {AX=proc_table,y}, Y=#kChecksumLength`.
 
 The `CALL` statement emits a `JSR` preceded by the register loads, for example:
 ```
