@@ -4,7 +4,7 @@
   window does not move.
 ]]
 test.Step(
-  "Move window with keyboard - cancelled",
+  "Move window with keyboard - canceled",
   function()
     desktop.OpenWindow("/A2.DESKTOP")
     a2dtest.WaitForSystemTask()
@@ -57,7 +57,7 @@ end)
   window does not resize.
 ]]
 test.Step(
-  "Resize window with keyboard - cancelled",
+  "Resize window with keyboard - canceled",
   function()
     desktop.OpenWindow("/A2.DESKTOP")
     a2dtest.WaitForSystemTask()

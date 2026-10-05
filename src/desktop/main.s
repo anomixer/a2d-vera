@@ -10138,7 +10138,7 @@ eof:    RETURN  A=#$FF
 ;;; ============================================================
 
 ;;; Verify that file is not forked (etc); if it is an OK/Cancel alert is shown.
-;;; If the user selects cancel, the operation is cancelled.
+;;; If the user selects cancel, the operation is canceled.
 ;;;
 ;;; Input: A=`storage_type`
 ;;; Output: C=0 if supported type, C=1 if unsupported but user picks OK.

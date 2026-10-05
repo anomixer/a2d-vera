@@ -85,7 +85,7 @@ END_PARAM_BLOCK
         stx     params_addr
 
 .ifdef DEBUG
-        ;; Bad if param block overlaps our zero page useage
+        ;; Bad if param block overlaps our zero page usage
     IF u16 params_addr < #zp_end
         brk
     END_IF

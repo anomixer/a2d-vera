@@ -169,7 +169,7 @@ Result codes (in A):
 * `kDragResultNotADrag` = 1 - not a drag; e.g. another click.
 * `kDragResultMove` = 2 - icons moved within window/desktop; erased, caller should repaint.
 * `kDragResultMoveModified` = 3 - icons moved within window/desktop but modifier down.
-* `kDragResultCanceled` = 4 - operation cancelled, e.g. via keypress, drag to non-target, etc.
+* `kDragResultCanceled` = 4 - operation canceled, e.g. via keypress, drag to non-target, etc.
 
 For `kDragResultDrop`, `kDragResultMove` and `kDragResultMoveModified`, `param` identifies the target:
 * High bit clear if the drop target was an icon, and the low bits are the icon number.

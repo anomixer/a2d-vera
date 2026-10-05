@@ -4,7 +4,7 @@
 ;;;
 ;;; ============================================================
 
-;;; Macros that provide higher level flow control without resorting to
+;;; Macros that provide higher level control flow without resorting to
 ;;; throw-away labels, and generally improve readability.
 
 ;;; ============================================================
@@ -1122,18 +1122,18 @@
 ;;;     ELSE
 ;;;     END_IF
 
-;;; A numeric variable for the current nesting depth of flow control
+;;; A numeric variable for the current nesting depth of control flow
 ;;; structures. Incremented when entering a structure, decremented
 ;;; when leaving.
 .define __flow_branch_depth__ ::__branch_depth__
 
-;;; A numeric variable for the "Nth" flow control structure (if,
+;;; A numeric variable for the "Nth" control flow structure (if,
 ;;; do/while, etc) at depth D. Used to mint various identifiers unique
 ;;; to each, without using scopes. Incremented when entering a
 ;;; structure.
 .define __flow_branch_count_at_depth__ ::.ident(.sprintf("__flow_branch_cad_%d__", __flow_branch_depth__))
 
-;;; Produce a unique identifier within this flow control structure.
+;;; Produce a unique identifier within this control flow structure.
 ;;; Usage: `__flow_branch_ident__ {"else"}`
 .define __flow_branch_ident__(prefix) ::.ident(.sprintf("__flow_branch_id_%s_%d_%d__", prefix, __flow_branch_depth__, __flow_branch_count_at_depth__))
 
@@ -1296,18 +1296,18 @@
 ;;;     WHILE inx : X < #30    ; 0+ statements, conditional branch to `eg_redo`
 ;;;   eg_break:
 
-;;; A numeric variable for the current nesting depth of flow control
+;;; A numeric variable for the current nesting depth of control flow
 ;;; structures. Incremented when entering a structure, decremented
 ;;; when leaving.
 .define __flow_loop_depth__ ::__loop_depth__
 
-;;; A numeric variable for the "Nth" flow control structure (if,
+;;; A numeric variable for the "Nth" control flow structure (if,
 ;;; do/while, etc) at depth D. Used to mint various identifiers unique
 ;;; to each, without using scopes. Incremented when entering a
 ;;; structure.
 .define __flow_loop_count_at_depth__ ::.ident(.sprintf("__flow_loop_cad_%d__", __flow_loop_depth__))
 
-;;; Produce a unique identifier within this flow control structure.
+;;; Produce a unique identifier within this control flow structure.
 ;;; Usage: `__flow_loop_ident__ {"else"}`
 .define __flow_loop_ident__(prefix) ::.ident(.sprintf("__flow_loop_id_%s_%d_%d__", prefix, __flow_loop_depth__, __flow_loop_count_at_depth__))
 
@@ -1478,7 +1478,7 @@
 ;;; * RETURN args...
 ;;; * FALL_THROUGH_TO proc, args...
 ;;;
-;;; Args take the form of (pseudo-)register or flag assigments, and
+;;; Args take the form of (pseudo-)register or flag assignments, and
 ;;; loads/clears/sets are emitted in the order given. CALL produces a
 ;;; JSR, TAIL_CALL produces a JMP, and RETURN produces RTS.
 ;;; FALL_THROUGH_TO produces nothing, but prevents refactoring

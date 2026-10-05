@@ -53,7 +53,7 @@ Redraw the control label, considering the disable state.
 
 
 ### Track ($04)
-Start a nested event loop tracking after a click is initiated in the control. Returns with N=0/Z=1 if clicked, N=1/Z=0 if cancelled (or disabled).
+Start a nested event loop tracking after a click is initiated in the control. Returns with N=0/Z=1 if clicked, N=1/Z=0 if canceled (or disabled).
 
 
 ### RadioDraw ($05)

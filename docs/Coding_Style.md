@@ -88,7 +88,9 @@ xcoord  .word
 ```
 
 
-## Flow control
+## Control Flow
+
+See [Flow.md](Flow.md) for details of the control flow macros used heavily in the project.
 
 * **Do** use `IF` / `ELSE_IF` / `ELSE` / `END_IF` macros to avoid throw-away local labels.
 
@@ -266,10 +268,11 @@ The following macros should be used to improve code readability by eliminating r
   * `ucmp8` for consistency
   * `ldax`/`ldxy`/`stax`/`stxy` for 16-bit load/stores
   * `copy8`/`copy16` for load-then-store
+  * See [MultiByte.md](MultiByte.md) for more details.
   * `jcc`/`jeq`/etc for long branches
 * memory:
   * `COPY_xx` for fixed size copy loops
-* flow control:
+* control flow:
   * `IF`/`ELSE_IF`/`ELSE`/`END_IF` for conditional branches, to avoid throw-away labels
   * `DO`/`REDO_IF`/`CONTINUE_IF`/`BREAK_IF`/`WHILE` for loopings, to avoid throw-away labels
   * `CALL proc, AX=params, Y=#opt` (and `TAIL_CALL`) for more semantic function calls
