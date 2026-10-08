@@ -1,101 +1,85 @@
-﻿# VeraSD block driver for a2d
+# VeraSD block driver for a2d
 
-An a2d-specific build of the VERA SD ProDOS 8 block driver.
+Builds the [VeraSD-IFS-ProDOS](https://github.com/) block driver relocated for use
+alongside DeskTop 1.6, plus the installer that registers it with ProDOS.
 
 ```
-node vera/verasd/build.mjs
+driver  681 bytes  LC bank 2  $DD00
+gate     80 bytes  main RAM   $AED1
+installer 2392 bytes, load $2000
+```
+
+## Build
+
+```powershell
+node verasd/build.mjs
+node verasd/build-installer.mjs
 ```
 
 Output lands next to this file. Nothing in `C:\dev\verasdtool` is written; its
 `src/asm6502.mjs` is imported read-only.
 
+## What this build changes
+
+Almost nothing. `verasd_a2d.asm` and `verasd_gate_a2d.asm` are upstream's
+`verasd_drv.asm` and `verasd_gate.asm` **verbatim**; `build.mjs` only rewrites
+the gate's `jsr $D400` operand to the real driver address.
+`verasd_a2d_install.asm` is upstream `verasd.asm` with two constants changed:
+
+```
+DRV_BODY    $D400 -> $DD00    where the driver is copied
+DRV_TARGET  $FF00 -> $AED1    where the gate is copied
+```
+
+The gate is in main RAM rather than language-card common memory because a2d uses
+all of LC common for its `icon_entries` heap. The gate only has to be reachable
+by ProDOS's `JMP ($BF26)`, and main RAM qualifies. See `AGENTS.md`.
+
 | file | contents |
 | :--- | :--- |
-| `verasd_a2d.asm` | driver source |
-| `build.mjs` | assembler wrapper plus the guards described below |
-| `verasd_a2d.bin` | 677-byte image, load at `$0800` |
-| `verasd_a2d.labels.json` | assembler label map, absolute addresses |
-| `verasd_a2d.layout.json` | the fields a2d must patch, as `$0800`-relative offsets |
+| `verasd_a2d.asm` | driver source, upstream verbatim |
+| `verasd_gate_a2d.asm` | gate source, upstream verbatim |
+| `verasd_a2d_install.asm` | installer source, upstream with two constants changed |
+| `build.mjs` | assembler wrapper plus the guards below |
+| `build-installer.mjs` | embeds driver and gate into the installer |
+| `*.bin` | built images |
+| `*.labels.json` | label maps, absolute addresses |
 
-## What this build changes, and why
+## Guards
 
-Upstream (`C:\dev\verasdtool\src\verasd-prodos`) keeps the driver in language
-card bank 2 at `$D400` and bridges to the caller's buffer through a common-memory
-gate at `$FF00`. That is fine for a plain ProDOS session and does not fit inside
-DeskTop.
+`build.mjs` fails the build rather than producing something subtly wrong:
 
-**1. Home is `$0800`, in ordinary RAM.** Measured with apple2ts against
-`A2DeskTop-VERA.hdv`:
+- The **assembled gate bytes** must contain `JSR <DRV_ADDR>`. Checking the
+  source is not sufficient: the gate's driver address once drifted from the
+  installer's copy destination, and the only symptom was `VERASD FAILED`.
+- `load_buffer` and `store_buffer` must be present. They are the LC bank 1 <->
+  bank 2 bridge for ProDOS's block buffer. Removing them hangs the machine on
+  the first buffer read. The gate is therefore assembled first, so the driver's
+  `GATE_LOAD` / `GATE_STORE` equates can be resolved from its labels.
+- Indexed-indirect operands must use `,Y`. `asm6502.mjs` compares case
+  sensitively, so `),y` silently assembles to a same-length absolute indexed
+  store to a garbage address.
 
-- Language card has about 205 bytes free across three places, against the 677
-  this driver needs. Bank 2 is a2d's `file_records_buffer`, whose own assert
-  (`main.s:2270`) demands more than `32 * kMaxIconCount` = 4064 of its 4096.
-- Every lower main-RAM hole is written. `$0400-$07FF` loses 442 bytes on a single
-  window open; `$1000-$1BFF` is rewritten completely, because 80STORE banks
-  `$0400-$1FFF` into aux.
-- `$0800-$0FFF` is the only window that fits, and it is transient: it is
-  `SegmentInitializer` plus the whole Desk Accessory area.
+## Verifying it standalone
 
-**2. No `$FF00` gate.** The gate existed only to reach ProDOS buffers held in
-LC bank 1 while the driver ran from LC bank 2. In ordinary RAM the caller's
-buffer is in whichever bank RAMWRT/RAMRD already select, so `lda (zp_buf),Y` and
-`sta (zp_buf),Y` are correct as written: the driver inherits the bank state
-ProDOS and a2d left behind. Removing the gate also drops the dependency on the
-ProDOS `$FF9B` interrupt code, removes the `/RAM` device-list juggling, and saves
-1024 redundant `$C08B`/`$C083` softswitch accesses per 512-byte block.
+The driver does not need a2d. On any bootable ProDOS volume, add
+`verasd_a2d_install.bin` as `VERASD.SYSTEM` and a tokenized `STARTUP`, then boot:
 
-**3. No language-card banking at all**, so there is no LCBANK1/LCBANK2
-save-restore to get wrong.
+```
+10 PRINT CHR$(4);"BRUN VERASD.SYSTEM"
+20 PRINT CHR$(4);"CATALOG /VERASD"
+```
 
-Net size change: 681 to 677 bytes.
+`BRUN` and `CATALOG` are ProDOS BASIC commands, so they go inside string literals
+behind a monitor redirect. Success looks like:
 
-## Why the image goes into both the main and the aux copy
+```
+VERASD INSTALLED
+/VERASD
+  VERASD.SYSTEM  BIN  6  2392 A=$2000
+  BLOCKS FREE: 65507  BLOCKS USED: 28
+  TOTAL BLOCKS: 65535
+```
 
-80STORE banks `$0400-$1FFF`, so `$0800` is not one location but two. a2d writes
-the same 677 bytes to the main and the aux copy, 1,354 bytes total. Instruction
-fetches then work no matter which bank RAMRD selects, and the driver still
-reaches ProDOS's buffer in whichever bank RAMWRT left it. That is why there is no
-RAMRD/RAMWRT juggling in the driver.
-
-## Residency
-
-`$0800` is `SegmentInitializer` and Desk Accessory territory, so the image is not
-kept resident. a2d reloads it from its own volume before each SD operation. The
-ProDOS device list entry points at the fixed `$0800`, so reloading code never
-disturbs the device list.
-
-The SD card is a raw ProDOS volume, so ProDOS itself does all the filesystem
-work: directory traversal, cluster chains, the allocation bitmap. Nothing in this
-directory reimplements any of it.
-
-## Patch fields
-
-`verasd_a2d.layout.json` lists what a2d must write before ProDOS is allowed to
-call the driver. All offsets are relative to `$0800`.
-
-| field | offset | width | meaning |
-| :--- | ---: | ---: | :--- |
-| `blocks_lo` | 659 | 1 | low byte of the volume's block count |
-| `blocks_hi` | 660 | 1 | high byte |
-| `part_offset` | 661 | 2 | sector offset to an MBR partition, 0 for a superfloppy |
-| `spi_data_addr` | 663 | 2 | `$C21E` for slot 2 |
-| `spi_ctrl_addr` | 665 | 2 | `$C21F` for slot 2 |
-| `byte_addressed` | 667 | 1 | 0 for SDHC, 1 for SDSC |
-| `unit_number` | 668 | 1 | ProDOS device unit, `$20` upstream |
-
-## Build guards
-
-`build.mjs` refuses to produce an image rather than ship a silent bug.
-
-- **No `GATE_LOAD`/`GATE_STORE` references.** Those are equates the upstream
-  build injects pointing into the `$FF00` bridge. Reintroducing one would
-  assemble cleanly and then need the gate at run time.
-- **Indexed-indirect operands are checked.** `asm6502.mjs` compares
-  `operand.endsWith("),Y")` case-sensitively, so a lowercase `),y` falls through
-  to the absolute-indexed branch and assembles `STA $0000,Y` ΓÇö *same length, no
-  error, writes to a garbage address*. This is silent and size-preserving; both
-  an exact-case check and a source-level `,Y` check guard it. Confirmed by
-  mutation: injecting a lowercase `y` leaves the image at 677 bytes either way.
-- **Entry bytes are checked** against `php / sei / cld / ldx #$17`, so a stray
-  `HEX` line or a label move cannot pass unnoticed.
-- **Size and window**: the image must fit under `$1000`.
+See `AGENTS.md` for what still has to happen before this is usable from
+DeskTop itself.

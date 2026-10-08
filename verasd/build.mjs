@@ -1,9 +1,9 @@
-﻿// build.mjs ΓÇö assemble the a2d-specific VeraSD ProDOS block driver.
+// build.mjs ΓÇö assemble the a2d-specific VeraSD ProDOS block driver.
 //
 //   node vera/verasd/build.mjs
 //
 // Produces:
-//   verasd_a2d.bin          driver image, load into LC bank 2 at $DD40
+//   verasd_a2d.bin          driver image, load into LC bank 2 at $DD00
 //   verasd_gate_a2d.bin     common-LC bridge, load at $FF00
 //   verasd_a2d.labels.json  assembler label map for the driver (absolute)
 //   verasd_a2d.layout.json  fields the installer must patch, bank-2 offsets
@@ -202,7 +202,7 @@ fs.writeFileSync(path.join(__dirname, "verasd_a2d.layout.json"), JSON.stringify(
 
 const hx = (n) => `$${n.toString(16).toUpperCase()}`
 console.log(`driver  ${drvBytes.length} bytes  LC bank ${DRV_BANK}  ${hx(DRV_ADDR)}-${hx(DRV_ADDR + drvBytes.length - 1)}`)
-console.log(`gate    ${gateBytes.length} bytes  LC common ${hx(GATE_ADDR)}-${hx(GATE_ADDR + gateBytes.length - 1)}`)
+console.log(`gate    ${gateBytes.length} bytes  main RAM  ${hx(GATE_ADDR)}-${hx(GATE_ADDR + gateBytes.length - 1)}`)
 console.log(`  bank 2 free space was ${hx(DRV_ADDR)}-${hx(DRV_TOP - 1)} (${DRV_TOP - DRV_ADDR} bytes), ${DRV_TOP - DRV_ADDR - drvBytes.length} spare`)
 console.log(`  gate headroom before the ProDOS handler: ${GATE_TOP - GATE_ADDR - gateBytes.length} bytes`)
 console.log(`  indexed-indirect accesses checked: ${drvIndirects.length}`)
