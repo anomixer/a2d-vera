@@ -1,0 +1,9 @@
+{
+  "start": 44753,
+  "caller_irq_on": 44785,
+  "gate_flags_ready": 44790,
+  "load_buffer": 44807,
+  "store_buffer": 44818,
+  "no_device": 44829,
+  "zp_buf": 48
+}

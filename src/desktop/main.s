@@ -2262,7 +2262,7 @@ str_empty:
 ;;; `window_filerecord_table` maps from list num to address
 
 file_records_buffer := $D000
-kFileRecordsBufferLen = $1000
+kFileRecordsBufferLen = $0D00
         .assert kFileRecordsBufferLen > .sizeof(FileRecord) * kMaxIconCount, error, "Size mismatch"
 
 ;;; This tracks the start of free space.
