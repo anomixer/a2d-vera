@@ -1,0 +1,54 @@
+# -*- mode: makefile; -*-
+
+### Common definitions
+
+# Compile flags. (Add `--expand-macros` to CAFLAGS for verbose logging)
+CAFLAGS = --target apple2 --list-bytes 0 --warnings-as-errors --color on
+LDFLAGS = --config ../common/asm.cfg --warnings-as-errors --color on
+
+# Build into a top level "out" directory.
+OUTDIR = ../../vera/build/generated
+
+BINDIR = ../../bin
+
+BUILD_LANG := $(shell grep 'define kBuildLang' ../config.inc | cut -d'"' -f2)
+
+# Evaluated relative to each Makefile - include, library, and resource files
+COMMON_HEADERS = \
+	../config.inc $(OUTDIR)/buildinfo.inc ../common.inc \
+	$(wildcard ../inc/*.inc *.inc) \
+	$(wildcard ../lib/*.s ../lib/*.inc) \
+	$(wildcard res/*.res.$(BUILD_LANG) ../common/res/*.res.$(BUILD_LANG))
+
+SYS_FONT = $(OUTDIR)/System.$(BUILD_LANG).font
+MONO_FONT = $(OUTDIR)/Monaco.$(BUILD_LANG).font
+
+### Build Rules
+
+# Nothing here should be default
+.DEFAULT_GOAL := all
+
+# Object files
+$(OUTDIR)/%.o: %.s $(HEADERS)
+	ca65 $(CAFLAGS) --listing $(basename $@).list -o $@ $<
+
+# Desk Accessory Files .da
+$(OUTDIR)/%.da: $(OUTDIR)/%.o ../common/asm.cfg
+	ld65 $(LDFLAGS) -o '$@' $<
+
+# System Files .SYS
+$(OUTDIR)/%.SYS: $(OUTDIR)/%.o ../common/asm.cfg
+	ld65 $(LDFLAGS) -o '$@' $<
+
+# Fonts
+.SECONDEXPANSION:
+$(OUTDIR)/%.font: ../../res/fonts/$$(basename $$*).unicode.txt $(BINDIR)/Transcode.pm
+	$(BINDIR)/build_font_from_unicode_txt.pl $(subst .,,$(suffix $*)) < ../../res/fonts/$(basename $*).unicode.txt > $@
+.PRECIOUS: $(OUTDIR)/%.font
+
+# Build Date
+$(OUTDIR)/buildinfo.inc: FORCE
+	@$(BINDIR)/make_buildinfo_inc
+
+FORCE:
+

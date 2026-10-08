@@ -6,3 +6,10 @@ mount
 
 # OS-specific files
 .DS_Store
+
+# Disposable build workspace (vera-mirror/build.py recreates it)
+vera-mirror/build/
+
+# Python bytecode
+__pycache__/
+*.pyc
