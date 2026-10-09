@@ -87,6 +87,7 @@ describe("VeraSD installed from a2d init", () => {
     let crash: null | { pc: number; op: number } = null
     let steps = 0
     const limit = 40_000_000
+    const history: number[] = []
 
     while (steps < limit) {
       const pc = s6502.PC
@@ -95,6 +96,8 @@ describe("VeraSD installed from a2d init", () => {
         crash = { pc, op }
         break
       }
+      history.push(pc)
+      if (history.length > 60) history.shift()
       try {
         processInstruction()
       } catch (e) {
@@ -103,6 +106,13 @@ describe("VeraSD installed from a2d init", () => {
       }
       steps++
     }
+
+    console.log(`steps:            ${steps}`)
+    console.log(`last PCs: ${history.slice(-24).map((p) => "$" + p.toString(16)).join(" ")}`)
+    console.log(`$2000: ${hex(readMain(0x2000, 16))}   <- installer here if MLI Load worked`)
+    console.log(`$0800: ${hex(readMain(0x0800, 16))}`)
+    console.log(`$0010: ${hex(readMain(0x0010, 16))}   <- boot block/vectors intact?`)
+    console.log(`$0eb0: ${hex(readMain(0x0eb0, 24))}   <- LoadVeraSDDriver tail`)
 
     const devcnt = readMain(DEVCNT, 1)[0]
     const devlst = readMain(DEVLST, 16)
@@ -116,7 +126,10 @@ describe("VeraSD installed from a2d init", () => {
     console.log(`DEVLST ($BF32):   ${hex(devlst)}`)
     console.log(`/RAM ($BF26/27):  ${hex(ramSlot)}`)
     console.log(`driver @ $DD00:   ${hex(drv)}  ${hex(DRV_ENTRY) === hex(drv) ? "== entry OK" : "!= entry"}`)
-    console.log(`gate   @ $AED1:   ${hex(gate)}`)
+    console.log(`gate   @ $AED1:   ${hex(gate)}`)  // placeholder
+    const diag = readMain(0xaef0, 2)
+    console.log(`MLI diag @AEF0:   err=${hex([diag[0]])} carry=${diag[1] & 1}  (0=no error, $3C=file not found, $40=?)`)
+    console.log(`installer@$2000:  ${hex(readMain(0x2000, 8))}`)
 
     expect(crash).toBeNull()
     // The installer copies the driver into LC bank 2 before it registers.

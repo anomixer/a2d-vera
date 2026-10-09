@@ -378,7 +378,12 @@ ref_num:        .byte   0
 param_count:    .byte   3
 pathname:       .addr   pn
 io_buffer:      .addr   io
-load_address:   .addr   la
+;;; High byte first, unlike .addr. ProDOS's Load takes the destination address
+;;; most significant byte first; with .addr (little endian) a request for $2000
+;;; lands the file at $0020, which overwrites the boot block and ProDOS's own
+;;; globals before the caller can jump to it.
+load_address:   .byte   >(la)
+                .byte   <(la)
         .refto param_count
         .refto pathname
         .refto io_buffer

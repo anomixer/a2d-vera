@@ -1021,11 +1021,15 @@ pending_alert := FinalSetup::pending_alert
 ;;; devices. Not fatal: if the file is missing or the load is refused, carry on
 ;;; without it.
 .proc LoadVeraSDDriver
-        DEFINE_LOAD_PARAMS load_params, str_verasd_system, IO_BUFFER, kVeraSDLoadAddress
+        ; Code first: the proc entry point is wherever emission starts, and
+        ; DEFINE_LOAD_PARAMS emits a data block. Putting the parameters ahead of
+        ; the code makes the entry point the parameter block, and the CPU
+        ; executes it as instructions.
         MLI_CALL $D7, load_params
         RTS_IF CS                ; nothing installed, or refused
         jsr     kVeraSDLoadAddress
         rts
+        DEFINE_LOAD_PARAMS load_params, str_verasd_system, IO_BUFFER, kVeraSDLoadAddress
 .endproc ; LoadVeraSDDriver
 
 ;;; Not $2000: SegmentLoader lives at $2000-$21FF and overwriting it would be a
