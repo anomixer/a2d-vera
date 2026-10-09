@@ -1,69 +1,47 @@
-# a2d + VeraSD
+# VeraSD boot disk image
 
-**This branch is now stock a2d. No VeraSD integration is needed.**
+This directory contains the bootable Apple II DeskTop 1.5 800K 2mg image with
+the VeraSD ProDOS IFS installer added:
+`A2-Desktop-1.5-en_800k-VeraSD.2mg`.
 
-Paths below are relative to the repository root.
+The disk image is an integration artifact. Keep the DeskTop program files
+unchanged; VeraSD is added as a ProDOS `SYS` file in the boot volume root. The
+boot directory order is intentional:
 
-## The finding
+1. `CLOCK.SYSTEM`
+2. `VERASD.SYSTEM`
+3. `DESKTOP.SYSTEM`
 
-a2d and the VeraSD ProDOS driver coexist with **no changes to a2d at all**.
-Verified on real hardware:
+ProDOS runs the root `.SYSTEM` files in directory order. The VeraSD installer
+attempts to install the driver and hands off to the next `.SYSTEM` on both
+success and failure. Keep it after Clock (which has already been verified to
+run) and before DeskTop.
 
-1. Write `C:\dev\verasdtool\VeraSD-IFS-ProDOS.img` (or `.po`) to the VERA SD card.
-2. Run the stock `verasd.system` installer from the SD volume (BRUN).
-3. Boot a2d.
+## Rebuild/update
 
-The `VERASD` volume appears in the desktop and works: browse, COPY both ways,
-double-click files. Stock a2d, stock installer, driver at `$D400`, gate at
-`$FF00`.
+Build the current installer in `C:\dev\verasdtool`:
 
-An earlier stretch of this branch tried to make a2d install the driver itself --
-injecting `VERASD.SYSTEM` into the boot directory, relocating the gate and driver,
-and rewriting the installer. Every part of that was solving a problem that does
-not exist, and the relocated builds were actively broken on hardware. It has been
-reverted.
-
-## What was learned along the way (worth keeping)
-
-- **Do not put the driver gate in main RAM.** Placing it at `$AED1` (the tail of
-  a2d's main segment) looks free at link time but is not: `src/desktop/README.md`
-  says memory above ~`$AE00` is used for file-copy buffers and overlays at run
-  time. An overlay lands on the gate, and the next ProDOS dispatch does
-  `JMP ($BF26)` into overlay data -- the screen corrupts and the machine BRKs.
-  LC common at `$FF00` is safe: a2d's language-card segment only reaches `$F2FF`,
-  and the icon heap grows upward from `$F165`, far short of `$FF00`.
-
-- **ProDOS runs SYS files in the boot directory in order, not just the first.**
-  The volume has `CLOCK.SYSTEM` before `DESKTOP.SYSTEM`, and both run. This was
-  only visible on hardware; an emulator test could not show it because the driver
-  install needs a real VERA card to get past `detect_vera`.
-
-- **ProDOS 16 MLI has no "load file to address" call.** The table in
-  `src/inc/prodos.inc` runs `CREATE = $C0` .. `GET_BUF = $D3` and stops. There is
-  no `$D7`; calling it returns error `$01` (invalid MLI call). a2d uses ProDOS 16
-  numbering (`OPEN = $C8`, `ON_LINE = $C5`), not ProDOS 8 (`OPEN = $02`).
-
-- **To run a block driver from within a2d, aux memory must be off.** a2d runs
-  with aux banked in, so a bare `jsr $2000` or `jsr $BF00` lands in AUX.
-  `MLI_CALL` is safe only because `MLIRelayImpl` does `sta ALTZPOFF` around its
-  own `jsr MLI`.
-
-- **`DEFINE_*_PARAMS` emit data, not code.** Putting a parameter block at the top
-  of a proc makes the proc's entry point a data block; the CPU then executes it.
-  This looked exactly like an unexplained `BRK`, because it walked into a load
-  address of `$2000` and executed `$00`.
-
-These were each found the hard way and cost real time. They are recorded here
-because the failure modes are non-obvious and would be easy to rediscover.
-
-## Driver location, for reference
-
-Stock installer constants (`C:\dev\verasdtool\src\verasd-prodos\verasd.asm`):
-
-```
-DRV_TARGET  = $FF00   gate, LC common
-DRV_BODY    = $D400   driver, LC bank 2
+```powershell
+node src\verasd-prodos\verasd.mjs
 ```
 
-Driver 681 bytes, gate 80 bytes, installer 2392 bytes -- byte-for-byte upstream
-sizes. Nothing needs relocating.
+This writes `src\verasd-prodos\verasd_sys.bin` and updates the standalone
+ProDOS disk image. Copy the SYS binary into this directory with ProDOS metadata
+encoded in the filename, then replace the volume-root entry with Cadius:
+
+```powershell
+Copy-Item C:\dev\verasdtool\src\verasd-prodos\verasd_sys.bin `
+  C:\dev\a2d-verasd\verasd\VERASD.SYSTEM#FF2000
+cadius.exe REPLACEFILE `
+  C:\dev\a2d-verasd\verasd\A2-Desktop-1.5-en_800k-VeraSD.2mg `
+  /A2.DeskTop C:\dev\a2d-verasd\verasd\VERASD.SYSTEM#FF2000
+```
+
+When preparing a fresh image, copy `A2DeskTop-1.5-en_800k.2mg` first, then add
+the SYS entry and arrange the root directory entries in the order above. Do not
+sort the boot directory alphabetically. Verify the image with
+`cadius.exe CHECKVOLUME` and inspect the physical root directory order; Cadius
+CATALOG output is alphabetized and does not prove boot order.
+
+Do not change a2d source code to install the driver. Stock a2d and the stock
+VeraSD IFS coexist; this image only automates installation during ProDOS boot.
