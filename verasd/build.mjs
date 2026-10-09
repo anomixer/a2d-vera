@@ -42,15 +42,23 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // `icon_entries:` assembles at $F195), leaving nowhere for a gate. Placing the
 // gate in main RAM removes that conflict entirely.
 //
-// $AED1 is the first free byte after a2d's main segment (measured padding
-// $012F, so the segment's content ends at $AED0). Overlays live at $B200-$BEFF,
-// well above this, so the tail is not touched at run time.
+// The gate does not live in main RAM. It used to sit at $AED1, in the first free
+// byte after a2d's main segment, but that turned out to be wrong: src/desktop/
+// README.md says "memory above ~$AE00 is free, and used for file copy buffers and
+// overlays". On real hardware a2d loads an overlay over the gate, and the next
+// ProDOS dispatch does `JMP ($BF26)` straight into overlay data -- the screen
+// corrupts, a2d redraws, and the machine BRKs.
+//
+// The gate now goes back in LC common at $FF00, upstream's own address, which is
+// safe for two reasons. The installer runs before a2d is loaded, so LC common is
+// empty at that point. And afterwards the LC segment only covers $D000-$F2FF, so
+// loading a2d never writes $FF00; the only thing that grows toward it is the
+// `icon_entries` heap, which starts at $F165 and grows 36 bytes per icon, so a
+// normal desktop of a handful of volumes stays far below $FF00.
 export const DRV_ADDR = 0xdd00
 export const DRV_BANK = 2
-export const GATE_ADDR = 0xaed1
-// Main segment ends at $AFFF; overlays start at $B200. Anything above $B000 is
-// outside what this build may claim.
-const GATE_TOP = 0xb000
+export const GATE_ADDR = 0xff00
+const GATE_TOP = 0x10000 // LC common runs to the top of the language card
 const DRV_TOP = 0xe000 // bank 2 must not spill into common memory
 
 const isComment = (l) => {

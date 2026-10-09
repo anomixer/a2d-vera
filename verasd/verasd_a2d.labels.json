@@ -1,6 +1,6 @@
 {
-  "GATE_LOAD": 44807,
-  "GATE_STORE": 44818,
+  "GATE_LOAD": 65334,
+  "GATE_STORE": 65345,
   "sd_lba0": 40,
   "sd_lba1": 41,
   "sd_lba2": 42,

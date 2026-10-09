@@ -995,17 +995,6 @@ slot_string_table:
         CALL    ShowAlertOption, X=#AlertButtonOptions::OK
     END_IF
 
-        ;; Install the VeraSD ProDOS driver before anything builds a device
-        ;; list, so the VERASD volume is present in the desktop's volume list
-        ;; and in the startup disk picker on the first pass.
-        ;;
-        ;; Loaded and called directly rather than through main::launch: launch
-        ;; ends in ResetAndInvoke, which soft-resets and re-invokes whatever it
-        ;; was handed, so an installer that returned would run again, forever.
-        ;;
-        ;; A missing file is not an error. The desktop just has no SD volume.
-        jsr     LoadVeraSDDriver
-
         ;; Execute startup items
         TAIL_CALL main::ExecuteStartupItems
 
@@ -1013,93 +1002,6 @@ slot_string_table:
 
 .endproc ; FinalSetup
 pending_alert := FinalSetup::pending_alert
-
-;;; ============================================================
-
-;;; Load and run the VeraSD installer from the boot volume so the SD card
-;;; appears as an ordinary ProDOS volume. Must run before the desktop enumerates
-;;; devices. Not fatal: if the file is missing or the load is refused, carry on
-;;; without it.
-.proc LoadVeraSDDriver
-        ; Jump over the parameter blocks: DEFINE_*_PARAMS emit data, so leaving
-        ; them at the top would make the proc's entry point a data block and the
-        ; CPU would execute it. That bug looked exactly like an unexplained BRK.
-        ;
-        ; ProDOS 16's MLI has no "load file to address" call -- $D7 is not in the
-        ; table in src/inc/prodos.inc, which ends at GET_BUF = $D3 -- so the
-        ; installer is read in here and then called directly. Going through
-        ; main::launch instead would soft-reset and re-invoke it forever.
-        jmp     vload_entry
-
-        DEFINE_OPEN_PARAMS vopen_params, str_verasd_system, IO_BUFFER
-        DEFINE_READWRITE_PARAMS vread_params, 0, kReadChunk
-        DEFINE_CLOSE_PARAMS vclose_params
-vdest_lo        = 0
-vdest_hi        = 0
-
-vload_entry:
-        lda     #<kVeraSDLoadAddress
-        sta     vdest
-        lda     #>kVeraSDLoadAddress
-        sta     vdest+1
-
-        MLI_CALL OPEN, vopen_params
-        bcc     vopen_ok
-        rts                             ; no installer on this volume
-vopen_ok:
-        lda     vopen_params::ref_num
-        sta     vread_params::ref_num
-        sta     vclose_params::ref_num
-
-        ; The destination walks up from kVeraSDLoadAddress one chunk at a time.
-vread_loop:
-        lda     vdest
-        sta     vread_params::data_buffer
-        lda     vdest+1
-        sta     vread_params::data_buffer+1
-        lda     #0
-        sta     vread_params::trans_count
-        MLI_CALL READ, vread_params
-        bcs     vread_done
-        lda     vread_params::trans_count
-        beq     vread_done            ; end of file
-        clc
-        adc     vdest
-        sta     vdest
-        lda     #0
-        adc     vdest+1
-        sta     vdest+1
-        jmp     vread_loop
-vread_done:
-        MLI_CALL CLOSE, vclose_params
-
-        ;; Call the installer in *main* memory, and leave ProDOS's MLI reachable
-        ;; at $BF00. a2d runs with aux memory banked in (ALTZPON), so without
-        ;; this both `jsr $2000` and the installer's own `jsr $BF00` would land in
-        ;; AUX at those addresses. `MLI_CALL` is safe because `MLIRelayImpl`
-        ;; does `sta ALTZPOFF` around its `jsr MLI`, but a bare `jsr` into the
-        ;; loaded file has no such protection -- which is why the installer was
-        ;; entered and then BRKed in zero page.
-        sta     ALTZPOFF
-        bit     ROMIN2
-        jsr     kVeraSDLoadAddress
-        sta     ALTZPON
-        rts
-.endproc ; LoadVeraSDDriver
-
-kReadChunk      = 128                 ; ProDOS 16 read buffer size
-vdest           = 0
-
-;;; Not $2000: SegmentLoader lives at $2000-$21FF and overwriting it would be a
-;;; side effect of installing a block driver. The assembled installer has no
-;;; absolute references into $2000-$2FFF, so it can sit anywhere free; $3000 is
-;;; between SegmentLoader and SegmentDeskTopMain ($4000).
-kVeraSDLoadAddress := $2000
-
-;;; The boot volume, hardcoded rather than derived from INVOKER_PREFIX, which is
-;;; only set once the launcher has started. This runs before that.
-str_verasd_system:
-        PASCAL_STRING "/A2.DeskTop/VERASD.SYSTEM"
 
 ;;; ============================================================
 

@@ -5,7 +5,7 @@
     "size": 681
   },
   "gate": {
-    "addr": 44753,
+    "addr": 65280,
     "bank": "common",
     "size": 80
   },
