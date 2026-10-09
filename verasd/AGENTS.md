@@ -33,8 +33,9 @@ VERASD INSTALLED
 driver, the driver issued SD reads over VERA SPI, and ProDOS's own directory
 read of its buffer came back correct.
 
-**Not yet done:** the image is not packaged, the driver is not installed at boot,
-and nothing has been run with a2d and the SD card together. See Outstanding.
+**Not yet done:** the driver is not installed when a2d boots. The installer runs
+from `FinalSetup` (see below) but does not get past `sd_init`, so no SD volume
+appears. Packaging is also not done. See Outstanding.
 
 ## Memory map (measured, not inferred)
 
@@ -265,27 +266,96 @@ Note for anyone writing a disassembler for this: 6502 operands are
 little-endian, so `4C 00 20` is `JMP $2000`, not `JMP $0020`. Getting that
 backwards makes the whole block look like it references memory outside itself.
 
+## Running the installer from a2d: what is actually known
+
+`src/desktop/init.s` `FinalSetup` now loads and calls the installer directly
+instead of going through `main::launch`, because `launch` soft-resets and
+re-invokes whatever it was given:
+
+```asm
+jsr     LoadVeraSDDriver      ;; MLI $D7, then JSR into the loaded file
+TAIL_CALL main::ExecuteStartupItems
+```
+
+`LoadVeraSDDriver` is in `init.s`; `DEFINE_LOAD_PARAMS` was added to
+`src/inc/prodos.inc` for the MLI `$D7` parameter block. `P_COUNT` counts
+parameters, matching the other wrappers in that file rather than the byte count
+in Apple's reference. The file loads at `$2000`, where the installer expects to
+be, which does overwrite `SegmentLoader` — that was chosen over `$3000` because
+the assembled installer contains no absolute operand pointing into
+`$2000-$2FFF`, but it is untested and worth revisiting.
+
+### How to observe this
+
+**A screenshot cannot tell you whether it worked.** a2d draws its volume icons
+before `FinalSetup` runs, so the desktop looks identical whether or not the
+driver installed. Five rounds of AppleWin screenshots were spent establishing
+this. If you need to know, read memory.
+
+`verasd/apple2ts/verasd_a2d.test.ts` does that. Copy it into
+`C:\dev\apple2ts\src\worker\devices\vera\` and run it with
+`node node_modules\jest\bin\jest.js src/worker/devices/vera/verasd_a2d.test.ts`
+(it imports apple2ts worker internals, so it cannot live anywhere else). It
+boots `A2D-verasd.hdv` headlessly with the SD card attached and prints
+ProDOS's own state:
+
+```
+DEVCNT ($BF31), DEVLST ($BF32), the /RAM slot at $BF26/$BF27,
+LC bank 2 $DD00 (driver entry 08 78 d8 a2 2b once copied),
+main RAM $AED1 (gate)
+```
+
+### What it showed
+
+With the installer as shipped (upstream `reserve_memory` intact):
+
+```
+DEVCNT:            3
+DEVLST:            e0 60 f1 71 00 00 00 00 00 00 00 00 e0 60 00 28
+/RAM ($BF26/27):   a3 de
+driver @ $DD00:    ff ff ff ff ff   <- never copied
+gate   @ $AED1:    00 00 00 00      <- never written
+crash:             BRK, op $00
+```
+
+`$DD00` still all `$FF` means `copy_driver` never ran. In the installer's flow
+`sd_init` and its failure path both come **before** `copy_driver`:
+
+```
+jsr sd_init / bcs init_fail
+jsr copy_driver
+```
+
+so the failure is at or before `sd_init`, not in the device registration that
+follows.
+
+`$BF26/$BF27` reads `$A3DE`, not the `$00/$FF` that upstream's
+`reserve_memory` insists on, so under a2d the installer would refuse even if it
+reached that point. Rewriting `reserve_memory` to leave `/RAM` alone — on the
+reasoning that `register_device` already claims the first free `DEVLST` entry at
+index `DEVCNT` — changed **nothing** about the observed state. That hypothesis
+was wrong, or at least not the blocker, and the change was reverted rather than
+kept. Do not assume `/RAM` is the problem without re-measuring.
+
+The BRK is at `$EA8` and is not from a `brk` in `init.s`. Its origin is unknown.
+
 ## Outstanding
 
-1. **Boot-time installation.** The installer's final `rts` does not fit a2d's
-   launch protocol: `src/desktop/main.s` `launch` ends in
-   `copy16 #INVOKER, reset_and_invoke_target` / `jmp ResetAndInvoke`, i.e. a2d
-   soft-resets and re-invokes whatever it launched. Running the installer from
-   `/Startup.Items/` therefore loops forever — verified, the desktop redraws in
-   a loop. `/Startup.Items/` is for long-running programs such as
-   `BASIC.SYSTEM`.
+1. **Why `sd_init` does not complete under a2d.** This is now the only blocker.
+   The installer is loaded and called (MLI `$D7` succeeds — a temporary BRK on
+   the carry path never fired), but `copy_driver` never runs and `$DD00` stays
+   `$FF`, so the failure is at or before `sd_init`. There is also an unexplained
+   BRK at `$EA8` that does not come from a `brk` in `init.s`. Set a breakpoint
+   there and find out how control reaches it; a plausible suspect is the
+   `MLI_CALL` inline parameter block being executed as code.
 
-   The obvious plan was a boot block that loads and runs the installer before
-   ProDOS. **Block 0 was disassembled and that plan is much harder than it
-   looks.** See "Boot block, disassembled" below for the structure and for why
-   there is no re-entrant load entry point to hook.
+   The `/RAM` slot at `$BF26/$BF27` reads `$A3DE` under a2d, where upstream's
+   `reserve_memory` requires `$00/$FF`, so the installer would refuse later even
+   if `sd_init` were fixed. Removing that requirement changed nothing when
+   tried, so treat it as unproven rather than as the fix.
 
-   An alternative worth investigating first: have the installer *chain* rather
-   than return. a2d's `ResetAndInvoke` would soft-reset once, the installer runs,
-   and the installer then ProDOS-LOADs and goes `/DESKTOP.SYSTEM`. The loop never
-   happens because nothing ever returns to a2d's `launch`. This needs no boot
-   block changes at all. Unverified: whether `/Startup.Items/` reaches a2d's own
-   launch before the installer gets its turn.
+   Boot-block injection is the alternative if `FinalSetup` turns out to be too
+   late; see "Boot block, disassembled" for why that is harder than it looks.
 
 2. **Packaging.** There is no `verasd/images/` base volume and no build script
    on this branch yet. `A2DeskTop-base.hdv` currently exists only on

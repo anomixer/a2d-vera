@@ -995,6 +995,17 @@ slot_string_table:
         CALL    ShowAlertOption, X=#AlertButtonOptions::OK
     END_IF
 
+        ;; Install the VeraSD ProDOS driver before anything builds a device
+        ;; list, so the VERASD volume is present in the desktop's volume list
+        ;; and in the startup disk picker on the first pass.
+        ;;
+        ;; Loaded and called directly rather than through main::launch: launch
+        ;; ends in ResetAndInvoke, which soft-resets and re-invokes whatever it
+        ;; was handed, so an installer that returned would run again, forever.
+        ;;
+        ;; A missing file is not an error. The desktop just has no SD volume.
+        jsr     LoadVeraSDDriver
+
         ;; Execute startup items
         TAIL_CALL main::ExecuteStartupItems
 
@@ -1002,6 +1013,31 @@ slot_string_table:
 
 .endproc ; FinalSetup
 pending_alert := FinalSetup::pending_alert
+
+;;; ============================================================
+
+;;; Load and run the VeraSD installer from the boot volume so the SD card
+;;; appears as an ordinary ProDOS volume. Must run before the desktop enumerates
+;;; devices. Not fatal: if the file is missing or the load is refused, carry on
+;;; without it.
+.proc LoadVeraSDDriver
+        DEFINE_LOAD_PARAMS load_params, str_verasd_system, IO_BUFFER, kVeraSDLoadAddress
+        MLI_CALL $D7, load_params
+        RTS_IF CS                ; nothing installed, or refused
+        jsr     kVeraSDLoadAddress
+        rts
+.endproc ; LoadVeraSDDriver
+
+;;; Not $2000: SegmentLoader lives at $2000-$21FF and overwriting it would be a
+;;; side effect of installing a block driver. The assembled installer has no
+;;; absolute references into $2000-$2FFF, so it can sit anywhere free; $3000 is
+;;; between SegmentLoader and SegmentDeskTopMain ($4000).
+kVeraSDLoadAddress := $2000
+
+;;; The boot volume, hardcoded rather than derived from INVOKER_PREFIX, which is
+;;; only set once the launcher has started. This runs before that.
+str_verasd_system:
+        PASCAL_STRING "/A2.DeskTop/VERASD.SYSTEM"
 
 ;;; ============================================================
 

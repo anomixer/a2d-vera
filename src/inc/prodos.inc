@@ -363,9 +363,8 @@ ref_num:        .byte   0
 
 ;;; MLI Load. `param_count` counts parameters, matching the other definitions
 ;;; above rather than the byte count in Apple's reference. ProDOS 8 takes a
-;;; three-byte load address; only the low two are used here, so the file always
-;;; lands at $2000.
-.macro DEFINE_LOAD_PARAMS name, pn, io
+;;; three-byte load address; only the low two are used here.
+.macro DEFINE_LOAD_PARAMS name, pn, io, la
         WARN_IF_SHADOWING name
     .if .xmatch(.string(pn), "pathname")
         ;; If 'pathname' is passed then expansion yields a circular reference.
@@ -379,7 +378,7 @@ ref_num:        .byte   0
 param_count:    .byte   3
 pathname:       .addr   pn
 io_buffer:      .addr   io
-load_address:   .word   $2000
+load_address:   .addr   la
         .refto param_count
         .refto pathname
         .refto io_buffer

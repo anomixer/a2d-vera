@@ -81,5 +81,19 @@ VERASD INSTALLED
   TOTAL BLOCKS: 65535
 ```
 
-See `AGENTS.md` for what still has to happen before this is usable from
-DeskTop itself.
+## Running it from DeskTop
+
+`src/desktop/init.s` loads the installer with MLI `$D7` and calls it, rather
+than going through DeskTop's own `launch` — `launch` ends in a soft reset and
+re-invokes whatever it was handed, so an installer that returned would run again
+on every pass.
+
+**This does not work yet.** The installer is loaded and called, but it does not
+get past its own `sd_init`, so no SD volume appears. To find out why, read
+memory rather than taking a screenshot: DeskTop draws its volume icons before
+`FinalSetup` runs, so the desktop looks the same either way.
+
+`AGENTS.md` has the details, the memory dumps, and a headless harness
+(`apple2ts/verasd_a2d.test.ts`) that prints ProDOS's device list.
+
+See `AGENTS.md` for what still has to happen before this is usable.
