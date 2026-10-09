@@ -130,6 +130,13 @@ describe("VeraSD installed from a2d init", () => {
     const diag = readMain(0xaef0, 2)
     console.log(`MLI diag @AEF0:   err=${hex([diag[0]])} carry=${diag[1] & 1}  (0=no error, $3C=file not found, $40=?)`)
     console.log(`installer@$2000:  ${hex(readMain(0x2000, 8))}`)
+    // Labels in verasd_a2d_install.labels.json are absolute addresses with the
+    // installer based at $2000 (start = 8192). message_id = $2628, did_reserve
+    // = $2627. 1 = installed, 2 = failed.
+    const msgId = readMain(9752, 1)[0]
+    const didReserve = readMain(9751, 1)[0]
+    console.log(`message_id:       ${msgId}  (1=installed, 2=failed)`)
+    console.log(`did_reserve:      ${didReserve}  (0=skipped /RAM, 1=reserved)`)
 
     expect(crash).toBeNull()
     // The installer copies the driver into LC bank 2 before it registers.
