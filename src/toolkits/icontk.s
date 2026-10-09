@@ -2466,11 +2466,9 @@ table:  .byte   1<<0, 1<<1, 1<<2, 1<<3, 1<<4, 1<<5, 1<<6, 1<<7
 .endproc ; IconMapIndexToOffsetMask
 
 ;;; Each byte represents 8 icons. id 0 is unused.
-;;; $FE clears bit 0 (id 0), so byte 0 covers ids 0-7 and supplies 7 icons.
-;;; The remaining 12 bytes supply 96, giving kMaxIconCount (103) in total.
 free_icon_map:
         .byte   $FE, $FF, $FF, $FF, $FF, $FF, $FF, $FF
-        .byte   $FF, $FF, $FF, $FF, $FF
+        .byte   $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
         ASSERT_TABLE_SIZE free_icon_map, (::kMaxIconCount + 7)/8
 
 ;;; ============================================================

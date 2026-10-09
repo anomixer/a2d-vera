@@ -1,9 +1,0 @@
-{
-  "start": 65280,
-  "caller_irq_on": 65312,
-  "gate_flags_ready": 65317,
-  "load_buffer": 65334,
-  "store_buffer": 65345,
-  "no_device": 65356,
-  "zp_buf": 48
-}

@@ -103,7 +103,7 @@ kMaxIconNameLength = 15
 
 ;;; Icon numbers 1...127 are supported
 ;;; (Tables keyed by icon number must hold `kMaxIconCount` + 1 entries)
-kMaxIconCount   = 103
+kMaxIconCount   = 127
 
 ;;; Masks for IconEntry::win_state
 kIconEntryStateDimmed      = %10000000 ; bit7
