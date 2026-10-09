@@ -5,74 +5,63 @@ A2D-verasd.hdv    the a2d desktop image under test
 SD-card.img       what to put on the VERA SD card (raw ProDOS, 32 MiB)
 ```
 
-## Before you boot: two things to set up with Copy II Plus
+## One thing to do first: sort the boot directory
 
-The installer has to run **before** DeskTop does, the same way `CLOCK.SYSTEM`
-already runs before `DESKTOP.SYSTEM`. Right now it is not set up that way, so the
-image will boot to the desktop with no SD volume. Two changes fix it:
+`VERASD.SYSTEM` is already the correct file — type **SYS**, auxtype **$2000**,
+2594 bytes, sitting in the root (`/A2.DeskTop`) directory. It is built to run
+*before* DeskTop, the same way `CLOCK.SYSTEM` already runs before
+`DESKTOP.SYSTEM`. But ProDOS runs the **first** SYS file it finds in the boot
+directory, and right now `CLOCK.SYSTEM` is ahead of it, so booting will bring up
+the desktop without the SD volume.
 
-**1. Move it to the root directory.** It is currently at `/A2.DeskTop`.
-ProDOS only looks in the boot directory (root) for a `.SYSTEM` file.
-
-**2. Make it the first SYS file in root, type `SYS`, auxtype `$2000`.**
-
-Right now the root directory is:
-
-```
-  A2.DESKTOP     (dir)
-  PRODOS         SYS  $0000
-  CLOCK.SYSTEM   SYS  $0000     <- ProDOS runs THIS one first
-  READ.ME        TXT
-  DESKTOP.SYSTEM SYS  $0000
-  MODULES        (dir)
-  EXTRAS         (dir)
-  APPLE.MENU     (dir)
-  SAMPLE.MEDIA   (dir)
-```
-
-You want `VERASD.SYSTEM` ahead of `CLOCK.SYSTEM`, so that the order becomes:
+Open the image with **Copy II Plus** and sort the root directory so
+`VERASD.SYSTEM` comes before `CLOCK.SYSTEM` — any sort that puts it first works.
+Current order:
 
 ```
-  VERASD.SYSTEM  SYS  $2000     <- runs first: installs the driver
-  CLOCK.SYSTEM   SYS  $0000     <- then the normal startup continues
+  A2.DESKTOP      (dir)
+  PRODOS          SYS  $0000
+  CLOCK.SYSTEM    SYS  $0000     <- currently runs first; must come AFTER VERASD.SYSTEM
   ...
+  VERASD.SYSTEM   SYS  $2000     <- needs to move above CLOCK.SYSTEM
 ```
 
-ProDOS runs the first SYS file it finds in the boot directory. `VERASD.SYSTEM`
-must be **type `$FF` (SYS)** or ProDOS will skip it entirely — Copy II Plus
-will set that when you copy it. Auxtype `$2000` matters because the installer is
-assembled to run at `$2000`.
+Copy II Plus can reorder, which is all that is needed — the file type is already
+correct in the image.
 
-Sort the catalog so the entries land in that physical order. Once
-`VERASD.SYSTEM` is in front, boot it and `VERASD.SYSTEM` installs the driver and
-then chains to `CLOCK.SYSTEM`, which chains to `DESKTOP.SYSTEM` as it normally
-does. If you sort it wrong the desktop simply comes up without the SD volume —
-nothing breaks.
+## What happens after the sort
 
-## How it is supposed to work
+Boot sequence becomes:
 
-`VERASD.SYSTEM` runs first, before DeskTop is loaded, so language-card common
-memory is empty. It copies the 681-byte driver to LC bank 2 at `$DD00` and the
-80-byte gate to LC common at `$FF00`, then loads and runs `CLOCK.SYSTEM`.
+1. ProDOS runs `VERASD.SYSTEM` (2594 bytes at `$2000`).
+2. It copies the 681-byte driver to LC bank 2 at `$DD00` and the 80-byte gate to
+   LC common at `$FF00`, then loads and runs `CLOCK.SYSTEM`.
+3. `CLOCK.SYSTEM` chains to `DESKTOP.SYSTEM` exactly as it normally does.
+4. The desktop comes up with the SD card registered as a ProDOS volume.
 
-The gate is in LC common at `$FF00` — upstream's own address — rather than in
-main RAM. The earlier test build put it at `$AED1`, which is inside the region
-DeskTop uses for file-copy buffers and overlays, so an overlay would land on top
-of the gate and the next disk access would jump into overlay data. That is what
-caused the screen corruption and BRK. LC common at `$FF00` is safe because the
-DeskTop language-card segment only reaches `$F2FF`, and the icon heap grows
-upward from `$F165`, well short of `$FF00`.
+If you sort it wrong, the desktop simply appears without the SD volume. Nothing
+breaks.
+
+## Why the gate is at $FF00 this time
+
+The previous test build put the gate at `$AED1` in main RAM, and it corrupted the
+screen and BRKed. `src/desktop/README.md` says memory above ~`$AE00` is used for
+file-copy buffers and overlays, so a2d loaded an overlay over the gate and the
+next disk access jumped into overlay data. The gate is now in LC common at
+`$FF00`: the installer runs before a2d is loaded so that memory is free at the
+time, and afterwards the DeskTop language-card segment only reaches `$F2FF` while
+the icon heap grows upward from `$F165`, well short of `$FF00`.
 
 ## What to report back
 
-- **A `VERASD` icon appears on the desktop** — it worked. Open it, list the
-  contents, try a COPY, try double-clicking a file.
-- **Desktop comes up, no `VERASD` icon** — the installer did not run first, or
-  SD init failed. Check that it is really the first SYS file.
-- **Corruption or BRK** — tell me what it looked like; that is fixed once the
-  gate is in LC common, so it would mean something new.
+- **`VERASD` icon appears on the desktop** — it worked. Open it, list contents,
+  COPY a file, double-click a file.
+- **Desktop comes up, no icon** — the sort did not take effect, or SD init
+  failed. Verify `VERASD.SYSTEM` really is ahead of `CLOCK.SYSTEM`.
+- **Corruption / BRK** — tell me what it looked like. The gate problem is fixed,
+  so this would be something new.
 
-If you want to see the installer run on its own from a monitor or BASIC prompt:
+To run the installer by hand from a monitor or BASIC prompt, bypassing the sort:
 
 ```
 BRUN /A2.DeskTop/VERASD.SYSTEM
