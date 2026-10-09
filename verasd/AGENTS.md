@@ -33,9 +33,10 @@ VERASD INSTALLED
 driver, the driver issued SD reads over VERA SPI, and ProDOS's own directory
 read of its buffer came back correct.
 
-**Not yet done:** the driver is not installed when a2d boots. The installer runs
-from `FinalSetup` (see below) but does not get past `sd_init`, so no SD volume
-appears. Packaging is also not done. See Outstanding.
+**Not yet done:** the driver is not installed when a2d boots, so no SD volume
+appears. The installer is now correctly read into `$2000` from `FinalSetup` and
+called, but running it hits a BRK at `$0006`, so nothing is copied. Packaging is
+also not done. See Outstanding.
 
 ## Memory map (measured, not inferred)
 
@@ -46,7 +47,7 @@ Segment: SegmentLoader         addr: $2000  len: $0200  padding: $004B
 Segment: SegmentDeskTopAux     addr: $4000  len: $8000  padding: $02F8
 Segment: SegmentDeskTopLC      addr: $D000  len: $2300  padding: $019B
 Segment: SegmentDeskTopMain    addr: $4000  len: $7000  padding: $0147
-Segment: SegmentInitializer    addr: $0800  len: $0800  padding: $00BC
+Segment: SegmentInitializer    addr: $0800  len: $0800  padding: $0036
 Segment: SegmentInvoker        addr: $0290  len: $0160  padding: $0002
 ```
 
@@ -273,17 +274,67 @@ instead of going through `main::launch`, because `launch` soft-resets and
 re-invokes whatever it was given:
 
 ```asm
-jsr     LoadVeraSDDriver      ;; MLI $D7, then JSR into the loaded file
+jsr     LoadVeraSDDriver      ;; OPEN / READ / CLOSE the installer, then JSR into it
 TAIL_CALL main::ExecuteStartupItems
 ```
 
-`LoadVeraSDDriver` is in `init.s`; `DEFINE_LOAD_PARAMS` was added to
-`src/inc/prodos.inc` for the MLI `$D7` parameter block. `P_COUNT` counts
-parameters, matching the other wrappers in that file rather than the byte count
-in Apple's reference. The file loads at `$2000`, where the installer expects to
-be, which does overwrite `SegmentLoader` — that was chosen over `$3000` because
-the assembled installer contains no absolute operand pointing into
-`$2000-$2FFF`, but it is untested and worth revisiting.
+### ProDOS's MLI has no "load file to address" call
+
+This is the single most important thing in this file, and it is easy to get wrong
+because the call number `$D7` sounds plausible and because Apple's documentation
+for other ProDOS versions does define a load-style call.
+
+The MLI table in `src/inc/prodos.inc` is the authority:
+
+```
+CREATE = $C0  DESTROY = $C1  RENAME = $C2  SET_FILE_INFO = $C3
+GET_FILE_INFO = $C4  ON_LINE = $C5  SET_PREFIX = $C6  GET_PREFIX = $C7
+OPEN = $C8  NEWLINE = $C9  READ = $CA  WRITE = $CB  CLOSE = $CC
+FLUSH = $CD  SET_MARK = $CE  GET_MARK = $CF  SET_EOF = $D0
+GET_EOF = $D1  SET_BUF = $D2  GET_BUF = $D3        <- table ends here
+```
+
+It stops at `$D3`. There is no `$D7`. ProDOS answered the call with error
+**`$01`**, invalid MLI call. So the installer is read in manually:
+
+```asm
+MLI_CALL OPEN,  vopen_params      ;; pathname, IO_BUFFER
+MLI_CALL READ,  vread_params      ;; 128 bytes per call, destination walks up
+MLI_CALL CLOSE, vclose_params
+jsr     kVeraSDLoadAddress
+```
+
+Two of those numbers are worth noting because they also say which ProDOS this
+is: `OPEN = $C8` and `ON_LINE = $C5` are **ProDOS 16** numbering, not ProDOS 8
+(where `OPEN` is `$02`). `ON_LINE` is what the VeraSD installer itself calls to
+bring a device online, and a2d defines it in the same table, so both are talking
+to the same ProDOS. Do not reconcile these two systems against ProDOS 8 docs.
+
+### Two bugs that were found only by reading memory back
+
+Neither was visible from the source, and both produced misleading symptoms.
+
+**The parameter block was being executed as code.** `DEFINE_*_PARAMS` emits a
+*data* block, so putting it at the top of the proc made the proc's entry point a
+parameter block, and the CPU ran it: it walked into the `load_address` field and
+hit `$00`, which is `BRK`. That BRK appeared at `$EA8`, in a2d code, far from the
+proc — which is why hunting for a `brk` instruction in `init.s` found nothing.
+The fix is an explicit `jmp vload_entry` past the parameter blocks. This trap is
+easy to fall into again because a2d's own wrappers are only ever referenced
+through their scope path from *outside* the proc, which hides the entry-point
+question entirely.
+
+**6502 is big-endian, and `.addr` is not.** Requesting load address `$2000` with
+`.addr` put the file at **`$0020`**, overwriting the boot block, zero page and
+ProDOS's globals. `kVeraSDLoadAddress` is emitted as `>(addr)` then `<(addr)`.
+
+The reason the second one looked like it worked is worth remembering: both bugs
+hid behind the same symptom, a BRK with `op = $00`, which read as "somewhere in
+init.s". `MLI` returning `$01` and the load address being wrong were two separate
+causes that only became distinguishable once the diagnostic stopped being a
+single error code. When one symptom has several plausible causes, log more than
+one signal — the parameter-block bug and the endianness bug were each hidden
+behind the other's failure.
 
 ### How to observe this
 
@@ -301,25 +352,48 @@ ProDOS's own state:
 
 ```
 DEVCNT ($BF31), DEVLST ($BF32), the /RAM slot at $BF26/$BF27,
-LC bank 2 $DD00 (driver entry 08 78 d8 a2 2b once copied),
-main RAM $AED1 (gate)
+LC bank 2 $DD00 (driver entry 08 78 d8 a2 17 once copied),
+main RAM $AED1 (gate), $2000 (the loaded installer),
+last PCs, and $0800 / $0010 / $0eb0 so the parameter block can be read back
 ```
 
-### What it showed
+The last PCs matter. A crash address alone says nothing about how control got
+there; the trace says whether the installer was entered at all.
 
-With the installer as shipped (upstream `reserve_memory` intact):
+### What it showed, in order
+
+Three distinct failures were stacked on top of each other and each one hid the
+next, so this is the sequence worth keeping:
 
 ```
-DEVCNT:            3
-DEVLST:            e0 60 f1 71 00 00 00 00 00 00 00 00 e0 60 00 28
-/RAM ($BF26/27):   a3 de
-driver @ $DD00:    ff ff ff ff ff   <- never copied
-gate   @ $AED1:    00 00 00 00      <- never written
-crash:             BRK, op $00
+run 1  crash BRK op $00 at $EA8      parameter block executed as code
+run 2  crash none, DEVCNT 0          code-first fixed the BRK, but $2000 was
+                                     never written: $D7 is not a valid call
+run 3  err $01, installer@$2000 =    OPEN/READ/CLOSE is the right mechanism,
+       7f 7f 7f ...                   but it had not been tried yet
+run 4  installer@$2000 =             file is now loaded correctly
+       08 78 d8 a2 22 bd 25 00
 ```
 
-`$DD00` still all `$FF` means `copy_driver` never ran. In the installer's flow
-`sd_init` and its failure path both come **before** `copy_driver`:
+`08 78 d8 a2 22` is `php / sei / cld / ldx #$22` — the installer's entry. That is
+the first proof the file is being placed and loaded correctly.
+
+Run 4 state, which is the current one:
+
+```
+DEVCNT ($BF31):   3
+DEVLST ($BF32):   e0 60 f1 71 00 00 00 00 00 00 00 00 e0 60 00 28
+/RAM ($BF26/27):  a3 de
+driver @ $DD00:   ff ff ff ff ff   <- never copied
+gate   @ $AED1:   00 00 00 00      <- never written
+installer@$2000:  08 78 d8 a2 22    <- loaded, and the installer was entered
+crash:            BRK, op $00 at $0006
+```
+
+`DEVCNT` and `DEVLST` are ProDOS's own values and are unchanged, so the crash
+happens inside the installer before it registers anything. `$DD00` still all
+`$FF` means `copy_driver` never ran. In the installer's flow `sd_init` and its
+failure path both come **before** `copy_driver`:
 
 ```
 jsr sd_init / bcs init_fail
@@ -329,30 +403,49 @@ jsr copy_driver
 so the failure is at or before `sd_init`, not in the device registration that
 follows.
 
-`$BF26/$BF27` reads `$A3DE`, not the `$00/$FF` that upstream's
-`reserve_memory` insists on, so under a2d the installer would refuse even if it
-reached that point. Rewriting `reserve_memory` to leave `/RAM` alone — on the
-reasoning that `register_device` already claims the first free `DEVLST` entry at
-index `DEVCNT` — changed **nothing** about the observed state. That hypothesis
-was wrong, or at least not the blocker, and the change was reverted rather than
-kept. Do not assume `/RAM` is the problem without re-measuring.
+A BRK at `$0006` is in zero page, well below anything a2d or the installer
+address. The most likely explanation is that the installer calls ProDOS through
+`MLI = $BF00`, which is correct for the ProDOS 2.4.3 volume it was verified
+against, but may not be the right entry point for the ProDOS that a2d boots
+into. That is the next thing to measure.
 
-The BRK is at `$EA8` and is not from a `brk` in `init.s`. Its origin is unknown.
+### Things that were ruled out
+
+**`/RAM` is not the blocker.** `$BF26/$BF27` reads `$A3DE`, not the `$00/$FF`
+that upstream's `reserve_memory` insists on, so under a2d the installer would
+refuse even if it reached that point. Rewriting `reserve_memory` to leave
+`/RAM` alone — on the reasoning that `register_device` already claims the first
+free `DEVLST` entry at index `DEVCNT` — changed **nothing** about the observed
+state, and was reverted rather than kept. Do not assume `/RAM` is the problem
+without re-measuring, but note that it *will* need attention once the crash
+before it is fixed.
+
+**The BRK at `$EA8` is not an unexplained crash.** It was the load address
+`$2000` being executed as an opcode. See above.
 
 ## Outstanding
 
-1. **Why `sd_init` does not complete under a2d.** This is now the only blocker.
-   The installer is loaded and called (MLI `$D7` succeeds — a temporary BRK on
-   the carry path never fired), but `copy_driver` never runs and `$DD00` stays
-   `$FF`, so the failure is at or before `sd_init`. There is also an unexplained
-   BRK at `$EA8` that does not come from a `brk` in `init.s`. Set a breakpoint
-   there and find out how control reaches it; a plausible suspect is the
-   `MLI_CALL` inline parameter block being executed as code.
+1. **Why the installer BRKs at `$0006` when run under a2d.** This is now the
+   only blocker. The installer is loaded at `$2000` and entered (verified by its
+   `08 78 d8 a2 22` entry bytes), `DEVCNT`/`DEVLST` are untouched, and
+   `copy_driver` never runs, so the failure is at or before `sd_init`.
 
-   The `/RAM` slot at `$BF26/$BF27` reads `$A3DE` under a2d, where upstream's
-   `reserve_memory` requires `$00/$FF`, so the installer would refuse later even
-   if `sd_init` were fixed. Removing that requirement changed nothing when
-   tried, so treat it as unproven rather than as the fix.
+   Prime suspect: the installer calls ProDOS through `MLI = $BF00`. That is
+   right for the ProDOS 2.4.3 volume it was verified against; a2d's MLI table
+   uses ProDOS 16 numbering, so `$BF00` may not be this ProDOS's entry point.
+   Measure it — read whatever a2d's own `MLI_CALL` macro jumps to, rather than
+   assuming.
+
+   Note the order this must be fixed in: the installer copies the driver to
+   `$DD00` and writes the gate to `$AED1`, and only *then* registers the device.
+   A BRK before any of that is a different bug from a BRK after it, so keep
+   re-reading `$DD00` and `$AED1` as well as `DEVCNT` to tell how far it got.
+
+   Once that is fixed, `/RAM` becomes the next thing: `$BF26/$BF27` reads `$A3DE`
+   under a2d where upstream's `reserve_memory` requires `$00/$FF`, so the
+   installer will refuse at that point. Treat that as likely-but-unproven; the
+   earlier attempt to relax it was made while a different bug was still firing
+   ahead of it, so its result means nothing either way.
 
    Boot-block injection is the alternative if `FinalSetup` turns out to be too
    late; see "Boot block, disassembled" for why that is harder than it looks.

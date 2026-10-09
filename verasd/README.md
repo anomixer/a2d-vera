@@ -83,15 +83,23 @@ VERASD INSTALLED
 
 ## Running it from DeskTop
 
-`src/desktop/init.s` loads the installer with MLI `$D7` and calls it, rather
-than going through DeskTop's own `launch` — `launch` ends in a soft reset and
-re-invokes whatever it was handed, so an installer that returned would run again
-on every pass.
+`src/desktop/init.s` reads the installer in with `MLI_CALL OPEN` / `READ` /
+`CLOSE` and jumps to it, rather than going through DeskTop's own `launch` —
+`launch` ends in a soft reset and re-invokes whatever it was handed, so an
+installer that returned would run again on every pass.
 
-**This does not work yet.** The installer is loaded and called, but it does not
-get past its own `sd_init`, so no SD volume appears. To find out why, read
-memory rather than taking a screenshot: DeskTop draws its volume icons before
-`FinalSetup` runs, so the desktop looks the same either way.
+It reads the file manually because ProDOS's MLI in this dialect has no "load file
+to address" call. The table in `src/inc/prodos.inc` ends at `GET_BUF = $D3`; the
+`$D7` call that this used to make returns error `$01`, invalid MLI call.
+
+**This does not work yet.** The installer is now loaded at `$2000` and entered
+(correctly, per its entry bytes), but it hits a BRK at `$0006` before copying
+anything, so no SD volume appears. The suspect is that the installer calls
+ProDOS through `MLI = $BF00`, which is right for the ProDOS 2.4.3 volume it was
+verified against but may not be this ProDOS's entry point.
+
+To find out why, read memory rather than taking a screenshot: DeskTop draws its
+volume icons before `FinalSetup` runs, so the desktop looks the same either way.
 
 `AGENTS.md` has the details, the memory dumps, and a headless harness
 (`apple2ts/verasd_a2d.test.ts`) that prints ProDOS's device list.
