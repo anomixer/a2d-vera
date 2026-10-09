@@ -1072,7 +1072,18 @@ vread_loop:
         jmp     vread_loop
 vread_done:
         MLI_CALL CLOSE, vclose_params
+
+        ;; Call the installer in *main* memory, and leave ProDOS's MLI reachable
+        ;; at $BF00. a2d runs with aux memory banked in (ALTZPON), so without
+        ;; this both `jsr $2000` and the installer's own `jsr $BF00` would land in
+        ;; AUX at those addresses. `MLI_CALL` is safe because `MLIRelayImpl`
+        ;; does `sta ALTZPOFF` around its `jsr MLI`, but a bare `jsr` into the
+        ;; loaded file has no such protection -- which is why the installer was
+        ;; entered and then BRKed in zero page.
+        sta     ALTZPOFF
+        bit     ROMIN2
         jsr     kVeraSDLoadAddress
+        sta     ALTZPON
         rts
 .endproc ; LoadVeraSDDriver
 

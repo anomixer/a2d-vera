@@ -637,11 +637,23 @@ ocr_bad:
 
 reserve_memory:
         ; Only replace the native /RAM bridge, never a third-party RAM driver.
+        ;
+        ; Under a2d, $BF26/$BF27 = $A3DE, not the $00/$FF that a bare ProDOS
+        ; boot leaves there, so the upstream check below would bail to
+        ; reserve_bad and the installer would exit at the very first call. That
+        ; value is a2d's own /RAM mapping, not a third-party driver, and it does
+        ; not occupy a DEVLST slot, so there is nothing to reserve and nothing
+        ; to displace. Skip reservation and let register_device claim the first
+        ; free DEVLST entry at index DEVCNT, which is what upstream's own path
+        ; does after removing /RAM. did_reserve keeps release_memory from
+        ; restoring values we never saved.
         lda $BF26
-        bne reserve_bad
+        bne reserve_skip
         lda $BF27
         cmp #$FF
-        bne reserve_bad
+        bne reserve_skip
+        lda #1
+        sta did_reserve
         lda DEVCNT
         sta saved_count
         ldx #13
@@ -696,7 +708,16 @@ ram_removed:
 reserve_bad:
         sec
         rts
+reserve_skip:
+        lda #0
+        sta did_reserve
+        clc
+        rts
 release_memory:
+        ; Nothing was reserved, so there is nothing to put back. Restoring
+        ; $BF26/$BF27 to $00/$FF here would wipe a2d's own /RAM mapping.
+        lda did_reserve
+        beq release_noop
         lda $C08B
         lda $C08B
         ldx #0
@@ -719,6 +740,8 @@ restore_device_list:
         sta DEVLST,X
         dex
         bpl restore_device_list
+        rts
+release_noop:
         rts
 read_volume:
         lda #1
@@ -804,6 +827,7 @@ message_end:
         rts
 installed_unit: !byte 0
 saved_count: !byte 0
+did_reserve: !byte 0
 saved_devices: HEX 00 00 00 00 00 00 00 00 00 00 00 00 00 00
 saved_gate: HEX 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
 message_id: !byte 0
