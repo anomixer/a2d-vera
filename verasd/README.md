@@ -14,11 +14,19 @@ The VeraSD installer attempts to install the driver, then chains to the next
 root `.SYSTEM` whether installation succeeds or fails. The intended handoff is
 therefore to `DESKTOP.SYSTEM` in either case.
 
-## Use
+## Test media
 
-Boot the 2mg in an Apple II / AppleWin setup with a VERA card in the configured
-slot and the VeraSD SD image mounted. The installer probes the card during boot;
-DeskTop then starts after it.
+`VeraSD-IFS-ProDOS.img.zip` contains the 32 MiB ProDOS SD-card image used for
+VeraSD testing. Extract it once:
+
+```powershell
+Expand-Archive .\VeraSD-IFS-ProDOS.img.zip -DestinationPath .
+```
+
+In AppleWin, configure the VERA card to use `VeraSD-IFS-ProDOS.img`, then boot
+`A2-Desktop-1.5-en_800k-VeraSD.2mg` from the floppy drive. On real hardware,
+write the extracted `.img` to the SD card used by the VERA card. The installer
+probes the card during boot; DeskTop starts after it.
 
 ## Rebuild the installer
 

@@ -3,6 +3,8 @@
 This directory contains the bootable Apple II DeskTop 1.5 800K 2mg image with
 the VeraSD ProDOS IFS installer added:
 `A2-Desktop-1.5-en_800k-VeraSD.2mg`.
+`VeraSD-IFS-ProDOS.img.zip` is the companion 32 MiB ProDOS image for the VERA
+SD card during testing.
 
 The disk image is an integration artifact. Keep the DeskTop program files
 unchanged; VeraSD is added as a ProDOS `SYS` file in the boot volume root. The
@@ -18,6 +20,11 @@ success and failure. Keep it after Clock (which has already been verified to
 run) and before DeskTop.
 
 ## Rebuild/update
+
+For functional testing, extract `VeraSD-IFS-ProDOS.img.zip`, mount the
+resulting `.img` in the VERA card configuration, and boot the 2mg in AppleWin.
+On real hardware, write the extracted `.img` to the SD card used by the VERA
+card.
 
 Build the current installer in `C:\dev\verasdtool`:
 
