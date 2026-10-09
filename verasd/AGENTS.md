@@ -26,9 +26,13 @@ resulting `.img` in the VERA card configuration, and boot the 2mg in AppleWin.
 On real hardware, write the extracted `.img` to the SD card used by the VERA
 card.
 
-Build the current installer in `C:\dev\verasdtool`:
+If VeraSDTool is not checked out yet, clone it under `C:\dev`, then build the
+current installer:
 
 ```powershell
+cd C:\dev
+git clone https://github.com/anomixer/verasdtool.git
+cd verasdtool
 node src\verasd-prodos\verasd.mjs
 ```
 

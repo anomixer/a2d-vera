@@ -30,14 +30,17 @@ probes the card during boot; DeskTop starts after it.
 
 ## Rebuild the installer
 
-From `C:\dev\verasdtool`:
+Clone VeraSDTool under `C:\dev`, then build the installer:
 
 ```powershell
+cd C:\dev
+git clone https://github.com/anomixer/verasdtool.git
+cd verasdtool
 node src\verasd-prodos\verasd.mjs
 ```
 
 The builder emits `src\verasd-prodos\verasd_sys.bin`. To update this disk image
-from the `a2d-verasd` checkout, use Cadius (the `#FF2000` suffix sets ProDOS
+from the `a2d-verasd` checkout, copy that output and use Cadius (the `#FF2000` suffix sets ProDOS
 file type `SYS` and load address `$2000`):
 
 ```powershell
