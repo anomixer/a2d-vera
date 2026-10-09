@@ -361,6 +361,32 @@ ref_num:        .byte   0
 .endparams
 .endmacro
 
+;;; MLI Load. `param_count` counts parameters, matching the other definitions
+;;; above rather than the byte count in Apple's reference. ProDOS 8 takes a
+;;; three-byte load address; only the low two are used here, so the file always
+;;; lands at $2000.
+.macro DEFINE_LOAD_PARAMS name, pn, io
+        WARN_IF_SHADOWING name
+    .if .xmatch(.string(pn), "pathname")
+        ;; If 'pathname' is passed then expansion yields a circular reference.
+        .error "Can't pass 'pathname' label to DEFINE_*_PARAMS"
+    .endif
+    .if .xmatch(.string(io), "io_buffer")
+        .error "Can't pass 'io_buffer' label to DEFINE_*_PARAMS"
+    .endif
+    .assert pn < $C000, error, "MLI params can't be in LC RAM"
+.params name
+param_count:    .byte   3
+pathname:       .addr   pn
+io_buffer:      .addr   io
+load_address:   .word   $2000
+        .refto param_count
+        .refto pathname
+        .refto io_buffer
+        .refto load_address
+.endparams
+.endmacro
+
 .macro DEFINE_READWRITE_PARAMS name, db, rc
         WARN_IF_SHADOWING name
 .params name
