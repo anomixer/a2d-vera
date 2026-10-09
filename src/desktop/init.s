@@ -1021,16 +1021,63 @@ pending_alert := FinalSetup::pending_alert
 ;;; devices. Not fatal: if the file is missing or the load is refused, carry on
 ;;; without it.
 .proc LoadVeraSDDriver
-        ; Code first: the proc entry point is wherever emission starts, and
-        ; DEFINE_LOAD_PARAMS emits a data block. Putting the parameters ahead of
-        ; the code makes the entry point the parameter block, and the CPU
-        ; executes it as instructions.
-        MLI_CALL $D7, load_params
-        RTS_IF CS                ; nothing installed, or refused
+        ; Jump over the parameter blocks: DEFINE_*_PARAMS emit data, so leaving
+        ; them at the top would make the proc's entry point a data block and the
+        ; CPU would execute it. That bug looked exactly like an unexplained BRK.
+        ;
+        ; ProDOS 16's MLI has no "load file to address" call -- $D7 is not in the
+        ; table in src/inc/prodos.inc, which ends at GET_BUF = $D3 -- so the
+        ; installer is read in here and then called directly. Going through
+        ; main::launch instead would soft-reset and re-invoke it forever.
+        jmp     vload_entry
+
+        DEFINE_OPEN_PARAMS vopen_params, str_verasd_system, IO_BUFFER
+        DEFINE_READWRITE_PARAMS vread_params, 0, kReadChunk
+        DEFINE_CLOSE_PARAMS vclose_params
+vdest_lo        = 0
+vdest_hi        = 0
+
+vload_entry:
+        lda     #<kVeraSDLoadAddress
+        sta     vdest
+        lda     #>kVeraSDLoadAddress
+        sta     vdest+1
+
+        MLI_CALL OPEN, vopen_params
+        bcc     vopen_ok
+        rts                             ; no installer on this volume
+vopen_ok:
+        lda     vopen_params::ref_num
+        sta     vread_params::ref_num
+        sta     vclose_params::ref_num
+
+        ; The destination walks up from kVeraSDLoadAddress one chunk at a time.
+vread_loop:
+        lda     vdest
+        sta     vread_params::data_buffer
+        lda     vdest+1
+        sta     vread_params::data_buffer+1
+        lda     #0
+        sta     vread_params::trans_count
+        MLI_CALL READ, vread_params
+        bcs     vread_done
+        lda     vread_params::trans_count
+        beq     vread_done            ; end of file
+        clc
+        adc     vdest
+        sta     vdest
+        lda     #0
+        adc     vdest+1
+        sta     vdest+1
+        jmp     vread_loop
+vread_done:
+        MLI_CALL CLOSE, vclose_params
         jsr     kVeraSDLoadAddress
         rts
-        DEFINE_LOAD_PARAMS load_params, str_verasd_system, IO_BUFFER, kVeraSDLoadAddress
 .endproc ; LoadVeraSDDriver
+
+kReadChunk      = 128                 ; ProDOS 16 read buffer size
+vdest           = 0
 
 ;;; Not $2000: SegmentLoader lives at $2000-$21FF and overwriting it would be a
 ;;; side effect of installing a block driver. The assembled installer has no
