@@ -5,65 +5,83 @@ A2D-verasd.hdv    the a2d desktop image under test
 SD-card.img       what to put on the VERA SD card (raw ProDOS, 32 MiB)
 ```
 
-## What to do
+## Before you boot: two things to set up with Copy II Plus
 
-1. Write `SD-card.img` to the SD card.
-2. Put `A2D-verasd.hdv` on the Apple II as drive 1.
-3. Boot.
+The installer has to run **before** DeskTop does, the same way `CLOCK.SYSTEM`
+already runs before `DESKTOP.SYSTEM`. Right now it is not set up that way, so the
+image will boot to the desktop with no SD volume. Two changes fix it:
 
-You should get the a2d desktop. Whether the SD volume appears is the question
-this build exists to answer.
+**1. Move it to the root directory.** It is currently at `/A2.DeskTop`.
+ProDOS only looks in the boot directory (root) for a `.SYSTEM` file.
 
-## What is known working, and what is not
+**2. Make it the first SYS file in root, type `SYS`, auxtype `$2000`.**
 
-Verified by running the image under an emulator and reading memory back:
+Right now the root directory is:
 
-- a2d boots cleanly, no BRK.
-- `FinalSetup` opens `/A2.DeskTop/VERASD.SYSTEM` and reads it to `$2000`.
-- The installer runs, and its `/RAM` reservation is correctly skipped
-  (`did_reserve = 0`).
-- It then reaches `detect_vera`, which probes `$C205` in slot 2 and then slot 4.
+```
+  A2.DESKTOP     (dir)
+  PRODOS         SYS  $0000
+  CLOCK.SYSTEM   SYS  $0000     <- ProDOS runs THIS one first
+  READ.ME        TXT
+  DESKTOP.SYSTEM SYS  $0000
+  MODULES        (dir)
+  EXTRAS         (dir)
+  APPLE.MENU     (dir)
+  SAMPLE.MEDIA   (dir)
+```
 
-**Everything after `detect_vera` is untested.** In the emulator it stops there
-because there is no real VERA card to answer the probe. On real hardware the
-probe should succeed and the installer should go on to `sd_init`, copy the
-driver to `$DD00`, write the gate to `$AED1`, and register the device.
+You want `VERASD.SYSTEM` ahead of `CLOCK.SYSTEM`, so that the order becomes:
 
-So the useful thing to report back is which of these you see:
+```
+  VERASD.SYSTEM  SYS  $2000     <- runs first: installs the driver
+  CLOCK.SYSTEM   SYS  $0000     <- then the normal startup continues
+  ...
+```
 
-- **A `VERASD` icon appears on the desktop** — it worked. Then open it, list the
-  contents, try a COPY, and try double-clicking a file.
-- **It boots to the desktop but there is no `VERASD` icon** — `detect_vera` or
-  something after it failed. This is the expected failure if the SD card or the
-  driver install did not complete.
-- **It hangs or crashes at boot** — something much earlier broke.
+ProDOS runs the first SYS file it finds in the boot directory. `VERASD.SYSTEM`
+must be **type `$FF` (SYS)** or ProDOS will skip it entirely — Copy II Plus
+will set that when you copy it. Auxtype `$2000` matters because the installer is
+assembled to run at `$2000`.
 
-If it boots but no icon appears, capture whatever text is on screen. The
-installer can also be run by hand from a monitor or BASIC prompt to see its
-own message, which distinguishes "no VERA found" from "SD init failed":
+Sort the catalog so the entries land in that physical order. Once
+`VERASD.SYSTEM` is in front, boot it and `VERASD.SYSTEM` installs the driver and
+then chains to `CLOCK.SYSTEM`, which chains to `DESKTOP.SYSTEM` as it normally
+does. If you sort it wrong the desktop simply comes up without the SD volume —
+nothing breaks.
+
+## How it is supposed to work
+
+`VERASD.SYSTEM` runs first, before DeskTop is loaded, so language-card common
+memory is empty. It copies the 681-byte driver to LC bank 2 at `$DD00` and the
+80-byte gate to LC common at `$FF00`, then loads and runs `CLOCK.SYSTEM`.
+
+The gate is in LC common at `$FF00` — upstream's own address — rather than in
+main RAM. The earlier test build put it at `$AED1`, which is inside the region
+DeskTop uses for file-copy buffers and overlays, so an overlay would land on top
+of the gate and the next disk access would jump into overlay data. That is what
+caused the screen corruption and BRK. LC common at `$FF00` is safe because the
+DeskTop language-card segment only reaches `$F2FF`, and the icon heap grows
+upward from `$F165`, well short of `$FF00`.
+
+## What to report back
+
+- **A `VERASD` icon appears on the desktop** — it worked. Open it, list the
+  contents, try a COPY, try double-clicking a file.
+- **Desktop comes up, no `VERASD` icon** — the installer did not run first, or
+  SD init failed. Check that it is really the first SYS file.
+- **Corruption or BRK** — tell me what it looked like; that is fixed once the
+  gate is in LC common, so it would mean something new.
+
+If you want to see the installer run on its own from a monitor or BASIC prompt:
 
 ```
 BRUN /A2.DeskTop/VERASD.SYSTEM
 ```
 
-It prints `VERASD INSTALLED` on success, or a short failure string otherwise.
+It prints `VERASD INSTALLED` on success, or `VERA NOT FOUND` / `VERASD FAILED`.
 
-## One thing to be aware of
+## If the desktop looks wrong
 
-`VERASD.SYSTEM` is stored in the image with ProDOS file type `UNK` rather than
-`BIN $2000`. The cadius build in use here rejects its own documented
-`#<type><auxtype>` filename suffix, so the type could not be set when the file
-was added.
-
-This does not affect a2d. `LoadVeraSDDriver` opens the file and reads the bytes
-to `$2000` itself with `MLI OPEN`/`READ`, and ProDOS's `OPEN` is type-agnostic,
-so the on-disk type is irrelevant to that path. It only matters if you `BRUN`
-the file, in which case ProDOS loads it at `$0800` instead of `$2000` and it
-will not run correctly. The a2d path is unaffected.
-
-## If you want to compare
-
-`vera-mirror/` on branch `vera-mirror` is a separate, working deliverable —
-plain DHGR mirrored to the VERA, no SD involved. This branch drops the
-mirroring to make room for the driver. If the desktop renders wrong here,
-compare against the mirror build to tell an SD problem from a display problem.
+`vera-mirror/` on branch `vera-mirror` is a separate, working build — plain DHGR
+mirrored to the VERA, no SD involved. Compare against it to tell an SD problem
+from a display problem.
