@@ -1942,7 +1942,7 @@ bad_rect:
 ;;; 16 bytes of params, copied to $8A
 
 src_width_bytes:
-        .res    1          ; width of source data in chars
+        .byte   0               ; width of source data in chars
 
 .proc PaintBitsImpl
 
@@ -3094,7 +3094,7 @@ paint_poly_params:
         .byte   6         ; number of points
         .byte   0
 paint_poly_points:
-        .res    4*6       ; points
+        .res    6*.sizeof(MGTK::Point) ; points
 
 .endproc ; LineToImpl
         DRAW_LINE_ABS_IMPL_do_draw_line := LineToImpl::do_draw_line
@@ -4854,9 +4854,9 @@ always_handle_irq:
         .byte   $00
 
 savebehind_size:
-        .res    2
+        .word   0
 savebehind_usage:
-        .res    2
+        .word   0
 
 desktop_initialized_flag:
         .byte   0
@@ -4920,7 +4920,7 @@ savesize        .word
         stx     menu_fill_rect + MGTK::Rect::y1
 
         inx                                   ; font height + 4: top of desktop area
-        stx     set_port_top
+        stx     set_port_viewloc+MGTK::Point::ycoord
         stx     winframe_top
         stx     desktop_mapinfo+MGTK::MapInfo::viewloc+MGTK::Point::ycoord
         stx     desktop_mapinfo+MGTK::MapInfo::maprect+MGTK::Rect::y1
@@ -5219,10 +5219,10 @@ after_events_hook_jmp:
 
 
 params_addr_save:
-        .res    2
+        .addr   0
 
 stack_ptr_save:
-        .res    1
+        .byte   0
 
 
 .proc HideCursorAndSaveParams
@@ -5981,7 +5981,7 @@ modifiers  .byte
 ;;; SetMenu
 
 need_savebehind:
-        .res    2
+        .word   0
 
 .proc SetMenuImpl
         temp      := $82
@@ -7283,36 +7283,36 @@ bits    .addr
 .endstruct
 
 .params up_scroll_params
-xcoord: .res    2
-ycoord: .res    2
+xcoord: .word   0
+ycoord: .word   0
         .byte   19,10
         .addr   up_scroll_bitmap
 .endparams
 
 .params down_scroll_params
-xcoord: .res    2
-ycoord: .res    2
+xcoord: .word   0
+ycoord: .word   0
         .byte   19,10
         .addr   down_scroll_bitmap
 .endparams
 
 .params left_scroll_params
-xcoord: .res    2
-ycoord: .res    2
+xcoord: .word   0
+ycoord: .word   0
         .byte   20,9
         .addr   left_scroll_bitmap
 .endparams
 
 .params right_scroll_params
-xcoord: .res    2
-ycoord: .res    2
+xcoord: .word   0
+ycoord: .word   0
         .byte   18,9
         .addr   right_scroll_bitmap
 .endparams
 
 .params resize_box_params
-xcoord: .res    2
-ycoord: .res    2
+xcoord: .word   0
+ycoord: .word   0
         .byte   20,10
         .addr   resize_box_bitmap
 .endparams
@@ -8281,7 +8281,7 @@ do_select_win   := SelectWindowImpl::do_select_win
 ;;; 1 byte of params, copied to $82
 
 previous_port:
-        .res    2
+        .addr   0
 
 update_port:
         .tag    MGTK::GrafPort
@@ -8533,18 +8533,18 @@ end:    sta     (params_addr),y
 ;;; ============================================================
 
 .params drag_initialpos
-xcoord: .res    2
-ycoord: .res    2
+xcoord: .word   0
+ycoord: .word   0
 .endparams
 
 .params drag_curpos
-xcoord: .res    2
-ycoord: .res    2
+xcoord: .word   0
+ycoord: .word   0
 .endparams
 
 .params drag_delta
-xdelta: .res    2
-ydelta: .res    2
+xdelta: .word   0
+ydelta: .word   0
 .endparams
 
         ;; High bit set if window is being resized, clear if moved.
@@ -8826,12 +8826,12 @@ DragWindowImpl_drag_or_grow := DragWindowImpl::drag_or_grow
         COPY_BLOCK winrect, left
         jsr     ClipRect
 
-        ldx     #3
+        ldx     #.sizeof(MGTK::Point)-1
 :       lda     left,x
-        sta     set_port_maprect,x
-        sta     set_port_params,x
+        sta     set_port_maprect+MGTK::Rect::topleft,x
+        sta     set_port_viewloc,x
         lda     right,x
-        sta     set_port_size,x
+        sta     set_port_maprect+MGTK::Rect::bottomright,x
         dex
         bpl     :-
 
@@ -8912,16 +8912,15 @@ wintitle_height:.word  12       ; font height + 3
 winframe_top:   .word  13       ; font height + 4
 
 .params set_port_params
-        DEFINE_POINT viewloc, 0,$D
+        DEFINE_POINT viewloc, 0, kMenuBarHeight
 mapbits:        .addr   MGTK::screen_mapbits
 mapwidth:       .byte   MGTK::screen_mapwidth
 reserved:       .byte   0
         DEFINE_RECT maprect, 0,0,0,0
         REF_MAPINFO_MEMBERS
 .endparams
-        set_port_top  := set_port_params::viewloc::ycoord
-        set_port_size := set_port_params::maprect::x2
-        set_port_maprect  := set_port_params::maprect::x1 ; Re-used since h/voff are 0
+        set_port_viewloc  := set_port_params::viewloc
+        set_port_maprect  := set_port_params::maprect
 
 ;;; ============================================================
 ;;; WindowToScreen
@@ -9640,9 +9639,9 @@ ret:    rts
 
 
 ctl_bound2:
-        .res 2
+        .word   0
 ctl_bound1:
-        .res 2
+        .word   0
 
 
         ;; Set FixedDiv::divisor and FixedDiv::dividend up for the
@@ -9974,7 +9973,7 @@ scale_y:
 .endproc ; StashCursor
 
 kbd_mouse_cursor_stash:
-        .res    2
+        .addr   0
 
 stash_addr:
         copy16  params_addr, stashed_addr
