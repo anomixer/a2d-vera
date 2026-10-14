@@ -208,16 +208,26 @@ pupil_rect:
 .endproc ; Init
 
 .proc InputLoop
+    REPEAT
         JSR_TO_MAIN JUMP_TABLE_SYSTEM_TASK
+
         MGTK_CALL MGTK::GetEvent, event_params
         lda     event_params::kind
-        IF A = #MGTK::EventKind::button_down GOTO HandleDown
-        IF A = #MGTK::EventKind::key_down GOTO HandleKey
-        IF A = #MGTK::EventKind::no_event GOTO HandleNoEvent
-        jmp     InputLoop
+      IF A = #MGTK::EventKind::button_down
+        jsr     HandleDown
+      ELSE_IF A = #MGTK::EventKind::key_down
+        jsr     HandleKey
+      ELSE_IF A = #MGTK::EventKind::no_event
+        jsr     HandleNoEvent
+      END_IF
+
+    FOREVER
 .endproc ; InputLoop
 
 .proc Exit
+        ;; Don't return to `InputLoop`
+        pla
+        pla
         MGTK_CALL MGTK::CloseWindow, winfo
         JSR_TO_MAIN JUMP_TABLE_CLEAR_UPDATES
         rts
@@ -232,11 +242,11 @@ pupil_rect:
     IF NOT_ZERO
         jsr     ToUpperCase
         IF A = #kShortcutCloseWindow GOTO Exit
-        bne     InputLoop       ; always
+        rts
     END_IF
 
         IF A = #CHAR_ESCAPE GOTO Exit
-        bne     InputLoop       ; always
+        rts
 .endproc ; HandleKey
 
 ;;; ============================================================
@@ -245,13 +255,13 @@ pupil_rect:
         copy16  event_params::xcoord, findwindow_params::mousex
         copy16  event_params::ycoord, findwindow_params::mousey
         MGTK_CALL MGTK::FindWindow, findwindow_params
-        IF u8 findwindow_params::window_id <> #kDAWindowId GOTO InputLoop
+        RTS_IF u8 findwindow_params::window_id <> #kDAWindowId
 
         lda     findwindow_params::which_area
         IF A = #MGTK::Area::close_box GOTO HandleClose
-        IF A = #MGTK::Area::dragbar JUMP HandleDrag
-        IF A = #MGTK::Area::content JUMP HandleGrow
-        jmp     InputLoop
+        IF A = #MGTK::Area::dragbar   JUMP HandleDrag
+        IF A = #MGTK::Area::content   JUMP HandleGrow
+        rts
 .endproc ; HandleDown
 
 ;;; ============================================================
@@ -260,7 +270,7 @@ pupil_rect:
         MGTK_CALL MGTK::TrackGoAway, trackgoaway_params
         lda     trackgoaway_params::clicked
         bne     Exit
-        jmp     InputLoop
+        rts
 .endproc ; HandleClose
 
 ;;; ============================================================
@@ -300,7 +310,7 @@ moved:  copy16  event_params::xcoord, screentowindow_params::screen::xcoord
         MGTK_CALL MGTK::ScreenToWindow, screentowindow_params
         jsr     DrawWindow
 
-done:   jmp     InputLoop
+done:   rts
 
 
 delta:  .word   0
@@ -326,7 +336,7 @@ common:
         jsr     DrawWindow
     END_IF
 
-        jmp     InputLoop
+        rts
 .endproc ; HandleDrag
 
 ;;; ============================================================
@@ -352,7 +362,7 @@ common:
       END_IF
     END_IF
 
-        jmp     InputLoop
+        rts
 
 tmpw:   .word   0
 .endproc ; HandleGrow
@@ -408,8 +418,8 @@ kMoveThresholdY = 5
         MGTK_CALL MGTK::SetPenMode, notpencopy
 
         ;; Draw resize box
-        sub16   winfo::maprect::x2, #kGrowBoxWidth, grow_box_params::viewloc::xcoord
-        sub16   winfo::maprect::y2, #kGrowBoxHeight, grow_box_params::viewloc::ycoord
+        SET s16 grow_box_params::viewloc::xcoord = winfo::maprect::x2 - #kGrowBoxWidth,
+        SET s16 grow_box_params::viewloc::ycoord = winfo::maprect::y2 - #kGrowBoxHeight
         MGTK_CALL MGTK::PaintBits, grow_box_params
 
         ;; Draw outline
@@ -417,16 +427,16 @@ kMoveThresholdY = 5
         MGTK_CALL MGTK::SetZP1, setzp_params_nopreserve
 
         ;; Left
-        copy16  #0, eye_rect+MGTK::Rect::x1
-        copy16  #0, eye_rect+MGTK::Rect::y1
-        copy16  winfo::maprect::x2, eye_rect+MGTK::Rect::x2
-        lsr16   eye_rect+MGTK::Rect::x2
-        add16   winfo::maprect::y2, #1, eye_rect+MGTK::Rect::y2
+        SET s16 eye_rect+MGTK::Rect::x1 = #0
+        SET s16 eye_rect+MGTK::Rect::y1 = #0
+        SET s16 eye_rect+MGTK::Rect::x2 = winfo::maprect::x2
+        SET s16 eye_rect+MGTK::Rect::x2 >>= #1
+        SET s16 eye_rect+MGTK::Rect::y2 = winfo::maprect::y2 + #1
         jsr     DrawEyeball
 
         ;; Right
-        copy16  eye_rect+MGTK::Rect::x2, eye_rect+MGTK::Rect::x1
-        copy16  winfo::maprect::x2, eye_rect+MGTK::Rect::x2
+        SET s16 eye_rect+MGTK::Rect::x1 = (eye_rect+MGTK::Rect::x2)
+        SET s16 eye_rect+MGTK::Rect::x2 = winfo::maprect::x2
         jsr     DrawEyeball
 
         MGTK_CALL MGTK::SetZP1, setzp_params_preserve
@@ -440,23 +450,23 @@ done_outline:
         COPY_STRUCT pos_r, last_r
 
         ;; Compute new coords
-        add16 winfo::maprect::x2, #2, rx ; width / 4
-        lsr16 rx
-        lsr16 rx
-        add16 winfo::maprect::y2, #2, ry ; height / 2
-        lsr16 ry
+        SET s16 rx = winfo::maprect::x2 + #2 ; width / 4
+        SET s16 rx >>= #1
+        SET s16 rx >>= #1
+        SET s16 ry = winfo::maprect::y2 + #2 ; height / 2
+        SET s16 ry >>= #1
 
-        copy16  rx, cx
-        copy16  ry, cy
+        SET s16 cx = rx
+        SET s16 cy = ry
         jsr     ComputePupilPos
-        sub16  ppx, #kPupilW/2, pos_l::xcoord
-        sub16  ppy, #kPupilH/2, pos_l::ycoord
+        SET s16 pos_l::xcoord = ppx - #kPupilW/2
+        SET s16 pos_l::ycoord = ppy - #kPupilH/2
 
-        add16   rx, cx, cx
-        add16   rx, cx, cx
+        SET s16 cx = rx + cx
+        SET s16 cx = rx + cx
         jsr     ComputePupilPos
-        sub16  ppx, #kPupilW/2, pos_r::xcoord
-        sub16  ppy, #kPupilH/2, pos_r::ycoord
+        SET s16 pos_r::xcoord = ppx - #kPupilW/2
+        SET s16 pos_r::ycoord = ppy - #kPupilH/2
 
         ;; Do one pupil at a time to minimize flicker
         MGTK_CALL MGTK::SetZP1, setzp_params_nopreserve ; go fast
@@ -791,7 +801,7 @@ oval := $50
         ;; ovalWidthDiv2 [16.16] = ovalWidth [16.0] / 2
         SET u16 ovalWidthDiv2 =  #0
         SET u16 ovalWidthDiv2+2 =  ovalWidth
-        lsr32   ovalWidthDiv2
+        SET u32 ovalWidthDiv2 >>= #1
 
         ;; oval.leftEdge [16.16] = oval.leftEdge [16.16] + ovalWidthDiv2 [16.16]
         SET u32 oval+OvalRec::leftEdge = (oval+OvalRec::leftEdge) + ovalWidthDiv2
