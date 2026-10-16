@@ -17,6 +17,7 @@
 ;;; * IF cond / ELSE_IF cond / ELSE / END_IF
 ;;; * DO / REDO_IF cond / CONTINUE_IF cond / BREAK_IF cond / WHILE cond
 ;;;   * or REPEAT / UNTIL cond if you prefer
+;;;   * also IF cond REDO / CONTINUE / BREAK
 ;;; * DO / FOREVER (or REPEAT / FOREVER) for unconditional JMP
 ;;; * DO / DONE for non-looping blocks; useful with REDO_IF / BREAK_IF
 ;;; * RTS_IF cond
@@ -702,6 +703,16 @@
             dec f2_lhs
           .endif
 
+          ;; If possible, convert RHS to #0 since we special case that.
+          .if _is_immediate {f2_rhs}
+            .if .const(_immediate_value {f2_rhs})
+              .if (_immediate_value {f2_rhs}) = 0
+                .undef f2_rhs
+                .define f2_rhs #0
+              .endif
+            .endif
+          .endif
+
           .if .xmatch({f2_op}, =) && .xmatch({f2_rhs}, #0)
             LDA f2_lhs
             F2_CODEGEN_BRANCH_WITH_FLAGS BEQ, BNE
@@ -1164,14 +1175,7 @@
 .endmacro
 .macro F2_FIND_SHORTCUT2
         .if .tcount({f2_token_list}) > 0
-          .if !(.xmatch({.left(1, {f2_token_list})}, GOTO) || .xmatch({.left(1, {f2_token_list})}, JUMP))
-            .define f2_tmp f2_params
-            .undef f2_params
-            .define f2_params f2_tmp .left(1, {f2_token_list})
-            .undef f2_tmp
-            F2_PARSE_CONSUME
-            F2_FIND_SHORTCUT2
-          .else
+          .if .xmatch({.left(1, {f2_token_list})}, GOTO) || .xmatch({.left(1, {f2_token_list})}, JUMP)
             .undef f2_shortcut_op
             .define f2_shortcut_op .left(1, {f2_token_list})
             F2_PARSE_CONSUME
@@ -1180,6 +1184,30 @@
             .endif
             .undef f2_shortcut_target
             .define f2_shortcut_target f2_token_list
+          .elseif .xmatch({.left(1, {f2_token_list})}, BREAK) || .xmatch({.left(1, {f2_token_list})}, REDO) || .xmatch({.left(1, {f2_token_list})}, CONTINUE)
+            .undef f2_shortcut_op
+            .define f2_shortcut_op .left(1, {f2_token_list})
+            F2_PARSE_CONSUME
+            .if .tcount({f2_token_list}) <> 0
+              F2_ERR_EXPECTED .sprintf("nothing after %s", .string(f2_shortcut_op))
+            .endif
+            .undef f2_shortcut_target
+            .if .xmatch({f2_shortcut_op}, BREAK)
+              .define f2_shortcut_target __flow_loop_ident__ {"break"}
+            .elseif  .xmatch({f2_shortcut_op}, REDO)
+              .define f2_shortcut_target __flow_loop_ident__ {"start"}
+            .elseif  .xmatch({f2_shortcut_op}, CONTINUE)
+              .define f2_shortcut_target __flow_loop_ident__ {"continue"}
+            .else
+              F2_ERR_UNREACHED
+            .endif
+          .else
+            .define f2_tmp f2_params
+            .undef f2_params
+            .define f2_params f2_tmp .left(1, {f2_token_list})
+            .undef f2_tmp
+            F2_PARSE_CONSUME
+            F2_FIND_SHORTCUT2
           .endif
         .endif
 .endmacro
@@ -1189,15 +1217,11 @@
 
         F2_FIND_SHORTCUT
         .if .tcount({f2_shortcut_target}) > 0
-          .if .xmatch({f2_shortcut_op}, GOTO)
-            F2_PARSE_AND_GEN_BIT {f2_shortcut_target},{f2_params}
-          .elseif .xmatch({f2_shortcut_op}, JUMP)
+          .if .xmatch({f2_shortcut_op}, JUMP)
             .undef f2_force_longbranch
             .define f2_force_longbranch 1
-            F2_PARSE_AND_GEN_BIT {f2_shortcut_target},{f2_params}
-          .else
-            F2_ERR_UNREACHED
           .endif
+          F2_PARSE_AND_GEN_BIT {f2_shortcut_target},{f2_params}
         .else
           __INC_IDENT__ __flow_branch_depth__
           __INC_IDENT__ __flow_branch_count_at_depth__
