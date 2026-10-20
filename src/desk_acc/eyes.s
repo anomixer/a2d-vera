@@ -472,40 +472,41 @@ done_outline:
 
     IF bit skip_erase_flag : NC
         MGTK_CALL MGTK::SetPenMode, pencopy
-        ldax    last_l::xcoord
-        stax    pupil_rect+MGTK::Rect::x1
-        addax   #kPupilW, pupil_rect+MGTK::Rect::x2
-        ldax    last_l::ycoord
-        stax    pupil_rect+MGTK::Rect::y1
-        addax   #kPupilH, pupil_rect+MGTK::Rect::y2
+        SET s16 AX = last_l::xcoord
+        SET s16 pupil_rect+MGTK::Rect::x1 = AX
+        SET s16 pupil_rect+MGTK::Rect::x2 = AX + #kPupilW
+        SET s16 AX = last_l::ycoord
+        SET s16 pupil_rect+MGTK::Rect::y1 = AX
+        SET s16 pupil_rect+MGTK::Rect::y2 = AX + #kPupilH
         jsr     _DrawPupil
     END_IF
+
         MGTK_CALL MGTK::SetPenMode, notpencopy
-        ldax    pos_l::xcoord
-        stax    pupil_rect+MGTK::Rect::x1
-        addax   #kPupilW, pupil_rect+MGTK::Rect::x2
-        ldax    pos_l::ycoord
-        stax    pupil_rect+MGTK::Rect::y1
-        addax   #kPupilH, pupil_rect+MGTK::Rect::y2
+        SET s16 AX = pos_l::xcoord
+        SET s16 pupil_rect+MGTK::Rect::x1 = AX
+        SET s16 pupil_rect+MGTK::Rect::x2 = AX + #kPupilW
+        SET s16 AX = pos_l::ycoord
+        SET s16 pupil_rect+MGTK::Rect::y1 = AX
+        SET s16 pupil_rect+MGTK::Rect::y2 = AX + #kPupilH
         jsr     _DrawPupil
 
     IF bit skip_erase_flag : NC
         MGTK_CALL MGTK::SetPenMode, pencopy
-        ldax    last_r::xcoord
-        stax    pupil_rect+MGTK::Rect::x1
-        addax   #kPupilW, pupil_rect+MGTK::Rect::x2
-        ldax    last_r::ycoord
-        stax    pupil_rect+MGTK::Rect::y1
-        addax   #kPupilH, pupil_rect+MGTK::Rect::y2
+        SET s16 AX = last_r::xcoord
+        SET s16 pupil_rect+MGTK::Rect::x1 = AX
+        SET s16 pupil_rect+MGTK::Rect::x2 = AX + #kPupilW
+        SET s16 AX = last_r::ycoord
+        SET s16 pupil_rect+MGTK::Rect::y1 = AX
+        SET s16 pupil_rect+MGTK::Rect::y2 = AX + #kPupilH
         jsr     _DrawPupil
     END_IF
         MGTK_CALL MGTK::SetPenMode, notpencopy
-        ldax    pos_r::xcoord
-        stax    pupil_rect+MGTK::Rect::x1
-        addax   #kPupilW, pupil_rect+MGTK::Rect::x2
-        ldax    pos_r::ycoord
-        stax    pupil_rect+MGTK::Rect::y1
-        addax   #kPupilH, pupil_rect+MGTK::Rect::y2
+        SET s16 AX = pos_r::xcoord
+        SET s16 pupil_rect+MGTK::Rect::x1 = AX
+        SET s16 pupil_rect+MGTK::Rect::x2 = AX + #kPupilW
+        SET s16 AX = pos_r::ycoord
+        SET s16 pupil_rect+MGTK::Rect::y1 = AX
+        SET s16 pupil_rect+MGTK::Rect::y2 = AX + #kPupilH
         jsr     _DrawPupil
 
         MGTK_CALL MGTK::SetZP1, setzp_params_preserve
@@ -569,12 +570,12 @@ skip_erase_flag:        .byte   0 ; bit7
         SET s16 rect+MGTK::Rect::x1 = (inner_oval+OvalRec::rightEdge+2)
         SET s16 rect+MGTK::Rect::x2 = (outer_oval+OvalRec::rightEdge+2)
         MGTK_CALL MGTK::PaintRect, rect
-     ELSE
+      ELSE
          ;; Only need to draw the outer oval
         SET s16 rect+MGTK::Rect::x1 = (outer_oval+OvalRec::leftEdge+2)
         SET s16 rect+MGTK::Rect::x2 = (outer_oval+OvalRec::rightEdge+2)
         MGTK_CALL MGTK::PaintRect, rect
-     END_IF
+      END_IF
 
     WHILE u16 ++yy < outer_oval+OvalRec::bottom
 
@@ -621,13 +622,13 @@ ppy:    .word   0
         FAC_STORE       cyf
 
         ;; pupil shouldn't overlap border
-        sub16  rx, #kPenW, tmpw
-        sub16  tmpw, #kPupilW, tmpw
+        sub16   rx, #kPenW, tmpw
+        sub16   tmpw, #kPupilW, tmpw
         FAC_LOAD_INT tmpw
         FAC_STORE prx
 
-        sub16  ry, #kPenH, tmpw
-        sub16  tmpw, #kPupilH, tmpw
+        sub16   ry, #kPenH, tmpw
+        sub16   tmpw, #kPupilH, tmpw
         FAC_LOAD_INT    tmpw
         FAC_STORE       pry
 
@@ -664,14 +665,14 @@ ppy:    .word   0
         FAC_MUL         dy
         FAC_ADD         tmpf
 
-        jsr             SQR
+        jsr     SQR
 
         ;; if d > pry:
         ;;   f = pry / d
         ;;   dx = f * dx
         ;;   dy = f * dy
 
-        FAC_COMP pry
+        FAC_COMP        pry
         bmi     skip
 
         FAC_DIV         pry     ; f = pry / d
@@ -957,8 +958,8 @@ rotate:
 
 .struct
         .org $10
-        d0     .word            ; [16.0]
-        temp   .dword
+        d0      .word           ; [16.0]
+        temp    .dword
 .endstruct
 
         ;; --------------------------------------------------
