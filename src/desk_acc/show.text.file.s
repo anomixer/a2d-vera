@@ -575,21 +575,21 @@ end:    rts
         ;; using floor(`first_visible_line` / `kLineOffsetDelta`) * `kLineOffsetDelta`
         copy16  first_visible_line, current_line
         ldx     #kLineOffsetShift
-    DO
-        lsr16   current_line        ; /= `kLineOffsetDelta`
-    WHILE dex : NOT ZERO
+      DO
+        lsr16   current_line    ; /= `kLineOffsetDelta`
+      WHILE dex : NOT ZERO
 
         copy16  current_line, offset_ptr
         ldx     #kLineOffsetShift
-    DO
-        asl16   current_line        ; *= `kLineOffsetDelta`
-    WHILE dex : NOT ZERO
+      DO
+        asl16   current_line    ; *= `kLineOffsetDelta`
+      WHILE dex : NOT ZERO
 
         ;; Use previously recorded offset into file.
         asl16   offset_ptr
         add16   offset_ptr, #line_offsets, offset_ptr
         ldy     #0
-        copy16in (offset_ptr),y, set_mark_params::position
+        copy16  (offset_ptr),y, set_mark_params::position
         JSR_TO_MAIN SetFileMark
 
         ;; And adjust to the appropriate offset for that line in the viewport.
@@ -646,23 +646,23 @@ end:    rts
         MGTK_CALL MGTK::ShieldCursor, line_shield_rect
 
         ;; Position cursor, update remaining width
-    DO
+      DO
         MGTK_CALL MGTK::MoveTo, line_pos
         sub16   #kWrapWidth, line_pos::left, remaining_width
 
         ;; Identify next run of characters
         jsr     FindTextRun
-      IF CS
+       IF CS
         ;; EOF - finish up
         MGTK_CALL MGTK::UnshieldCursor
         jmp     done
-      END_IF
+       END_IF
 
         ;; Update pointer into buffer for next time
         add16_8 ptr, drawtext_params::textlen
 
         ;; Did the run end due to a tab?
-    WHILE u8 tab_flag <> #0     ; yes, keep going
+      WHILE u8 tab_flag <> #0   ; yes, keep going
 
         ;; --------------------------------------------------
         ;; End of line
@@ -678,7 +678,7 @@ end:    rts
         dec     offset_counter
        IF ZERO
         ldy     #0
-        copy16in cur_offset, (offset_ptr),y
+        copy16  cur_offset, (offset_ptr),y
         add16_8 offset_ptr, #2
         copy8   #kLineOffsetDelta, offset_counter ; reset
        END_IF

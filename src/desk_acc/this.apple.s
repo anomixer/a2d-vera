@@ -1489,14 +1489,10 @@ mask:   .byte   0
 ;;; Per Technical Note: ProDOS #21: Identifying ProDOS Devices
 ;;; https://web.archive.org/web/2007/http://web.pdx.edu/~heiss/technotes/pdos/tn.pdos.21.html
         COMPARE_FWB $FF, $00    ; $CnFF == $00 ?
-      IF EQ
-        RETURN  AX=#str_diskii
-      END_IF
+        IF EQ RETURN AX=#str_diskii
 
         COMPARE_FWB $FF, $FF    ; $CnFF == $FF ?
-      IF EQ
-        RETURN  AX=#str_diskii_13
-      END_IF
+        IF EQ RETURN AX=#str_diskii_13
 
         ;; Smartport?
         COMPARE_FWB $07, $00    ; $Cn07 == $00 ?
@@ -1509,19 +1505,13 @@ ret:    rts
 
         ;; Block devices - a few signatures
         CALL    SigCheck, AX=#sigtable_nvram
-      IF CS
-        RETURN  AX=#str_nvram
-      END_IF
+        IF CS RETURN AX=#str_nvram
 
         CALL    SigCheck, AX=#sigtable_booti
-      IF CS
-        RETURN  AX=#str_booti
-      END_IF
+        IF CS RETURN AX=#str_booti
 
         CALL    SigCheck, AX=#sigtable_xdrive
-      IF CS
-        RETURN  AX=#str_xdrive
-      END_IF
+        IF CS RETURN AX=#str_xdrive
 
         sec
         RETURN  AX=#str_block
@@ -1532,9 +1522,7 @@ ret:    rts
 ;;; VidHD
 
         CALL    SigCheck, AX=#sigtable_vidhd
-    IF CS
-        RETURN  AX=#str_vidhd
-    END_IF
+        IF CS RETURN AX=#str_vidhd
 
 ;;; ---------------------------------------------
 ;;; Apple IIe Technical Reference Manual
@@ -1553,36 +1541,33 @@ ret:    rts
         ;; Workstation card has same ID bytes as Super Serial Card,
         ;; so test a few more after the Pascal 1.1 firmware signature
         CALL    SigCheck, AX=#sigtable_workstation
-    IF CS
-        RETURN  AX=#str_workstation
-    END_IF
+        IF CS RETURN AX=#str_workstation
 
         GET_FWB $0C             ; $Cn0C == ....
 
-.macro IF_SIGNATURE_THEN_RETURN     byte, arg
-    IF A = #byte
-        RETURN  AX=#arg         ; C=1 implicitly if Z=1
-    END_IF
+.macro IF_SIGNATURE_THEN_RETURN byte, arg
+        IF A = #byte \
+          RETURN AX=#arg        ; C=1 implicitly if Z=1
 .endmacro
 
         ;; Specific Apple cards/built-ins
-    IF_SIGNATURE_THEN_RETURN $31, str_ssc
-    IF_SIGNATURE_THEN_RETURN $88, str_80col
-    IF_SIGNATURE_THEN_RETURN $20, str_mouse
-    IF_SIGNATURE_THEN_RETURN $14, str_grappler
-    IF_SIGNATURE_THEN_RETURN $41, str_applecat
+        IF_SIGNATURE_THEN_RETURN $31, str_ssc
+        IF_SIGNATURE_THEN_RETURN $88, str_80col
+        IF_SIGNATURE_THEN_RETURN $20, str_mouse
+        IF_SIGNATURE_THEN_RETURN $14, str_grappler
+        IF_SIGNATURE_THEN_RETURN $41, str_applecat
 
         ;; Generic cards
         and     #$F0            ; just device class nibble
-    IF_SIGNATURE_THEN_RETURN $10, str_printer
-    IF_SIGNATURE_THEN_RETURN $20, str_joystick
-    IF_SIGNATURE_THEN_RETURN $30, str_io
-    IF_SIGNATURE_THEN_RETURN $40, str_modem
-    IF_SIGNATURE_THEN_RETURN $50, str_audio
-    IF_SIGNATURE_THEN_RETURN $60, str_clock
-    IF_SIGNATURE_THEN_RETURN $70, str_storage
-    IF_SIGNATURE_THEN_RETURN $80, str_80col
-    IF_SIGNATURE_THEN_RETURN $90, str_network
+        IF_SIGNATURE_THEN_RETURN $10, str_printer
+        IF_SIGNATURE_THEN_RETURN $20, str_joystick
+        IF_SIGNATURE_THEN_RETURN $30, str_io
+        IF_SIGNATURE_THEN_RETURN $40, str_modem
+        IF_SIGNATURE_THEN_RETURN $50, str_audio
+        IF_SIGNATURE_THEN_RETURN $60, str_clock
+        IF_SIGNATURE_THEN_RETURN $70, str_storage
+        IF_SIGNATURE_THEN_RETURN $80, str_80col
+        IF_SIGNATURE_THEN_RETURN $90, str_network
 
         ;; Pascal Firmware, but unknown type. Return
         ;; "unknown" otherwise it will be detected as serial below.
@@ -1596,55 +1581,40 @@ notpas:
 
 ;;; ThunderClock
         CALL    SigCheck, AX=#sigtable_thunderclock
-    IF CS
-        RETURN  AX=#str_thunderclock
-    END_IF
+        IF CS RETURN AX=#str_thunderclock
 
 ;;; ---------------------------------------------
 ;;; Based on ProDOS BASIC Programming Examples
 
 ;;; Silentype
         CALL    SigCheck, AX=#sigtable_silentype
-    IF CS
-        RETURN  AX=#str_silentype
-    END_IF
+        IF CS RETURN AX=#str_silentype
 
 ;;; Clock
         CALL    SigCheck, AX=#sigtable_clock
-    IF CS
-        RETURN  AX=#str_clock
-    END_IF
+        IF CS RETURN AX=#str_clock
+
         CALL    SigCheck, AX=#sigtable_clock2
-    IF CS
-        RETURN  AX=#str_clock
-    END_IF
+        IF CS RETURN AX=#str_clock
 
 ;;; Communications Card
         CALL    SigCheck, AX=#sigtable_comm
-    IF CS
-        RETURN  AX=#str_comm
-    END_IF
+        IF CS RETURN AX=#str_comm
 
 ;;; Serial Card
         CALL    SigCheck, AX=#sigtable_serial
-    IF CS
-        RETURN  AX=#str_serial
-    END_IF
+        IF CS RETURN AX=#str_serial
 
 ;;; Parallel Card
         CALL    SigCheck, AX=#sigtable_parallel
-    IF CS
-        RETURN  AX=#str_parallel
-    END_IF
+        IF CS RETURN AX=#str_parallel
 
 ;;; ---------------------------------------------
 ;;; Other cards not conforming to Pascal signature
 
 ;;; Apple IEEE-488 Interface
         CALL    SigCheck, AX=#sigtable_ieee488
-    IF CS
-        RETURN  AX=#str_ieee488
-    END_IF
+        IF CS RETURN AX=#str_ieee488
 
         rts
 
@@ -1724,32 +1694,22 @@ sigtable_ieee488:       .byte   4, $05, $50, $07, $38, $0B, $FF, $0C, $CF
         CALL    WithInterruptsDisabled, AX=#DetectMockingboard
     IF CS
         CALL    WithInterruptsDisabled, AX=#DetectPhasor
-      IF CS
-        RETURN  AX=#str_phasor
-      END_IF
+        IF CS RETURN AX=#str_phasor
 
         RETURN  C=1, AX=#str_mockingboard
     END_IF
 
         CALL    WithInterruptsDisabled, AX=#DetectZ80
-    IF CS
-        RETURN  AX=#str_z80
-    END_IF
+        IF CS RETURN AX=#str_z80
 
         CALL    WithInterruptsDisabled, AX=#DetectUthernet2
-    IF CS
-        RETURN  AX=#str_uthernet2
-    END_IF
+        IF CS RETURN AX=#str_uthernet2
 
         CALL    WithInterruptsDisabled, AX=#DetectPassportMIDI
-    IF CS
-        RETURN  AX=#str_passport
-    END_IF
+        IF CS RETURN AX=#str_passport
 
         CALL    WithInterruptsDisabled, AX=#DetectApplicard
-    IF CS
-        RETURN  AX=#str_applicard
-    END_IF
+        IF CS RETURN AX=#str_applicard
 
         RETURN  C=0
 .endproc ; ProbeSlotNoFirmware
@@ -1931,9 +1891,9 @@ write:  sta     $C080,x         ; self-modified to $C0n0
         tmp := $06
         copy16  memory, tmp
         ldy     #6
-      DO
+    DO
         asl16   tmp             ; * 64
-      WHILE dey : NOT_ZERO
+    WHILE dey : NOT_ZERO
         CALL    IntToStringWithSeparators, AX=tmp
         CALL    AppendMemorySuffix, AX=#str_memory_kb_suffix
         COPY_STRING str_from_int, str_ramworks_memory
@@ -1960,7 +1920,7 @@ write:  sta     $C080,x         ; self-modified to $C0n0
         SET_BIT7_FLAG memory_is_mb_flag
     END_IF
 
-        CALL IntToStringWithSeparators, AX=memory
+        CALL    IntToStringWithSeparators, AX=memory
     IF bit memory_is_mb_flag : NS
         CALL    AppendMemorySuffix, AX=#str_memory_mb_suffix
     ELSE
@@ -2274,9 +2234,8 @@ p6502:  RETURN  AX=#str_6502
 
         ;; Distinguish 65802 and 65816 by machine ID
 p658xx: jsr     IsIIgs
-    IF CC
-        RETURN  AX=#str_65816   ; Only IIgs supports 65816
-    END_IF
+        IF CC \
+          RETURN AX=#str_65816  ; Only IIgs supports 65816
         RETURN  AX=#str_65802   ; Other boards support 65802
 .endproc ; CPUId
 
