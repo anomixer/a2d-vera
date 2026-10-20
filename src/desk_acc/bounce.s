@@ -294,7 +294,7 @@ finish:
 ;;; ============================================================
 
 .proc HandleNoEvent
-        TAIL_CALL       AnimateObjects
+        TAIL_CALL AnimateObjects
 .endproc ; HandleNoEvent
 
 ;;; ============================================================
@@ -330,7 +330,7 @@ finish:
       WHILE dey : POS
         MGTK_CALL MGTK::PaintBits, object_params
 
-        add16_8 pos_ptr, #.sizeof(MGTK::Point)
+        SET u16 pos_ptr += u8 #.sizeof(MGTK::Point)
 
         pla
         tax
@@ -352,8 +352,8 @@ finish:
         tmpw      := $0A
         dim       := $0C
 
-        copy16  #object_positions, pos_ptr
-        copy16  #object_deltas, delta_ptr
+        SET u16 pos_ptr = #object_positions
+        SET u16 delta_ptr = #object_deltas
         ldx     #kNumObjects-1
 
     DO
@@ -373,54 +373,53 @@ finish:
         ;; Update X coordinate and maybe delta
 
         ldy     #MGTK::Point::xcoord
-        add16in (pos_ptr),y, (delta_ptr),y, tmpw
+        SET s16 tmpw = (pos_ptr),y + (delta_ptr),y
 
 
       IF s16 tmpw < #0
-        copy16  #0, tmpw
+        SET s16 tmpw = #0
 
         ldy     #MGTK::Point::xcoord
-        sub16in #0, (delta_ptr),y, (delta_ptr),y
+        SET s16 (delta_ptr),y = #0 - (delta_ptr),y
       END_IF
 
-        sub16   winfo::maprect+MGTK::Rect::x2, #kObjectWidth-1, dim
-
+        SET s16 dim = (winfo::maprect+MGTK::Rect::x2) - #(kObjectWidth-1)
 
       IF s16 dim < tmpw
         copy16  dim, tmpw
 
         ldy     #MGTK::Point::xcoord
-        sub16in #0, (delta_ptr),y, (delta_ptr),y
+        SET s16 (delta_ptr),y = #0 - (delta_ptr),y
       END_IF
 
         ldy     #MGTK::Point::xcoord
-        copy16in tmpw, (pos_ptr),y
+        SET s16 (pos_ptr),y = tmpw
 
         ;; --------------------------------------------------
         ;; Update Y coordinate and maybe delta
 
         ldy     #MGTK::Point::ycoord
-        add16in (pos_ptr),y, (delta_ptr),y, tmpw
+        SET s16 tmpw = (pos_ptr),y + (delta_ptr),y
 
 
       IF s16 tmpw < #0
-        copy16  #0, tmpw
+        SET s16 tmpw = #0
 
         ldy     #MGTK::Point::ycoord
-        sub16in #0, (delta_ptr),y, (delta_ptr),y
+        SET s16 (delta_ptr),y = #0 - (delta_ptr),y
       END_IF
 
         sub16   winfo::maprect+MGTK::Rect::y2, #kObjectHeight-1, dim
 
       IF s16 dim < tmpw
-        copy16  dim, tmpw
+        SET s16 tmpw = dim
 
         ldy     #MGTK::Point::ycoord
-        sub16in #0, (delta_ptr),y, (delta_ptr),y
+        SET s16 (delta_ptr),y = #0 - (delta_ptr),y
       END_IF
 
         ldy     #MGTK::Point::ycoord
-        copy16in tmpw, (pos_ptr),y
+        SET u16 (pos_ptr),y = tmpw
 
         ;; --------------------------------------------------
         ;; Draw
@@ -443,8 +442,8 @@ finish:
         ;; --------------------------------------------------
         ;; Next
 
-        add16_8 pos_ptr, #.sizeof(MGTK::Point)
-        add16_8 delta_ptr, #.sizeof(MGTK::Point)
+        SET u16 pos_ptr += u8 #.sizeof(MGTK::Point)
+        SET u16 delta_ptr += u8 #.sizeof(MGTK::Point)
 
         pla
         tax
@@ -453,13 +452,13 @@ finish:
         rts
 
 .proc _Paint
-        ldax    object_params::viewloc::xcoord
-        stax    shield_rect::x1
-        addax   object_params::maprect::x2, shield_rect::x2
+        SET s16 AX = object_params::viewloc::xcoord
+        SET s16 shield_rect::x1 = AX
+        SET s16 shield_rect::x2 = AX + object_params::maprect::x2
 
-        ldax    object_params::viewloc::ycoord
-        stax    shield_rect::y1
-        addax   object_params::maprect::y2, shield_rect::y2
+        SET s16 AX = object_params::viewloc::ycoord
+        SET s16 shield_rect::y1 = AX
+        SET s16 shield_rect::y2 = AX + object_params::maprect::y2
 
         MGTK_CALL MGTK::ShieldCursor, shield_rect
         MGTK_CALL MGTK::PaintBits, object_params

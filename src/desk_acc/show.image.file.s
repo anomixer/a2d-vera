@@ -1415,9 +1415,10 @@ ShowUnpackedSHR := ShowSHRImpl::unpacked
         sta     file_entry+FileEntry::storage_type_name_length
 
         CALL    _DetermineIconType, AX=#file_entry+FileEntry::storage_type_name_length
-    IF A = #IconType::graphics
-        RETURN  C=1
-    END_IF
+
+        IF A = #IconType::graphics \
+          RETURN C=1
+
         RETURN  C=0
 
 ;;; --------------------------------------------------
@@ -1461,9 +1462,8 @@ END_PARAM_BLOCK
     REPEAT
         ldy     #ICTRecord::mask ; $00 if done
         lda     (ptr),y
-      IF A = #kICTSentinel
-        RETURN  A=#IconType::generic
-      END_IF
+        IF A = #kICTSentinel \
+          RETURN A=#IconType::generic
 
         ;; Check type (with mask)
         and     file_type       ; A = type & mask
@@ -1500,7 +1500,7 @@ END_PARAM_BLOCK
       IF NOT_ZERO
         ;; Set up pointers to suffix and filename
         ldy     #ICTRecord::aux_suf
-        copy16in (ptr),y, ptr_suffix
+        copy16  (ptr),y, ptr_suffix
         ;; Start at the end of the strings
         ldy     #0
         copy8   (ptr_suffix),y, suffix_pos
