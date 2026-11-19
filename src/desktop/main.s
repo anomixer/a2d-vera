@@ -5,6 +5,7 @@
 ;;; ============================================================
 
         .include "../disk_copy/disk_copy.inc"
+        .include "../lib/determine_icon_type.inc"
 
 ;;; ============================================================
 ;;; Segment loaded into MAIN $4000-$BEFF
@@ -7594,97 +7595,25 @@ vol_blocks_used:  .word   0
 ;;; Output: A is IconType to use (for icons, open/preview, etc)
 
 .proc DetermineIconType
-        ptr := $06
-        flags := $08
-        ptr_filename := $0A
+        ptr_table    := $06
+        ptr_filename := $08
+        ptr_suffix   := $0A
+        ict_record   := $0C
 
         file_type   := src_file_info_params::file_type
         aux_type    := src_file_info_params::aux_type
         blocks_used := src_file_info_params::blocks_used
 
-        stax    ptr_filename
-
         jsr     PushPointers
-        copy16  #icontype_table, ptr
+        stax    ptr_filename
+        copy16  #icontype_table, ptr_table
 
-    REPEAT
-        ldy     #ICTRecord::mask ; $00 if done
-        lda     (ptr),y
-      IF A = #kICTSentinel
-        jsr     PopPointers
-        RETURN  A=#IconType::generic
-      END_IF
-
-        ;; Check type (with mask)
-        and     file_type       ; A = type & mask
-        iny                     ; ASSERT: Y = ICTRecord::filetype
-        ASSERT_EQUALS ICTRecord::filetype, ICTRecord::mask+1
-        cmp     (ptr),y         ; type check
-        bne     next
-
-        ;; Flags
-        iny                     ; ASSERT: Y = ICTRecord::flags
-        ASSERT_EQUALS ICTRecord::flags, ICTRecord::filetype+1
-        copy8   (ptr),y, flags
-
-        ;; Does Aux Type matter, and if so does it match?
-      IF bit flags : NS         ; bit 7 = compare aux
-        iny                     ; ASSERT: Y = FTORecord::aux_suf
-        ASSERT_EQUALS ICTRecord::aux_suf, ICTRecord::flags+1
-        IF u8 aux_type <> (ptr),y GOTO next
-        iny
-        IF u8 aux_type+1 <> (ptr),y GOTO next
-      END_IF
-
-        ;; Does Block Count matter, and if so does it match?
-      IF bit flags : VS         ; bit 6 = compare blocks
-        ldy     #ICTRecord::blocks
-        IF u8 blocks_used <> (ptr),y GOTO next
-        iny
-        IF u8 blocks_used+1 <> (ptr),y GOTO next
-      END_IF
-
-        ;; Filename suffix?
-        lda     flags
-        and     #ICT_FLAGS_SUFFIX
-      IF NOT_ZERO
-        ;; Set up pointers to suffix and filename
-        ptr_suffix      := $08
-        ldy     #ICTRecord::aux_suf
-        copy16  (ptr),y, ptr_suffix
-        ;; Start at the end of the strings
-        ldy     #0
-        copy8   (ptr_suffix),y, suffix_pos
-        copy8   (ptr_filename),y, filename_pos
-
-        ;; Case-insensitive compare each character
-       DO
-        filename_pos := *+1
-        ldy     #SELF_MODIFIED_BYTE
-        lda     (ptr_filename),y
-        jsr     ToUpperCase
-        suffix_pos := *+1
-        ldy     #SELF_MODIFIED_BYTE
-        cmp     (ptr_suffix),y  ; already uppercase
-        bne     next            ; no match
-
-        ;; Move to previous characters
-        dec     suffix_pos
-        BREAK_IF ZERO           ; if we ran out of suffix, it's a match
-        dec     filename_pos
-        beq     next            ; but if we ran out of filename, it's not
-       WHILE NOT_ZERO           ; otherwise, keep going
-      END_IF
-
-        ;; Have a match
-        ldy     #ICTRecord::icontype
-        lda     (ptr),y
+        jsr     DetermineIconTypeImpl
         jsr     PopPointers
         rts
 
-        ;; Next entry
-next:   add16_8 ptr, #.sizeof(ICTRecord)
-    FOREVER
+        .include "../lib/determine_icon_type.s"
+
 .endproc ; DetermineIconType
 
 ;;; ============================================================
@@ -14892,6 +14821,7 @@ icontype_table:
         DEFINE_ICTRECORD $FF, FT_ARCHIVE,   ICT_FLAGS_AUX, $8002, 0, IconType::archive    ; NuFX
         DEFINE_ICTRECORD $FF, FT_LINK,      ICT_FLAGS_AUX, kLinkFileAuxType, 0, IconType::link ; $E1 LNK
         DEFINE_ICTRECORD $FF, FT_SPEECH,    ICT_FLAGS_AUX, $0001, 0, IconType::speech     ; $D9 Speech
+        DEFINE_ICTRECORD $FF, FT_ENTERTAINMENT, ICT_FLAGS_AUXMASK, $C800, $FF00, IconType::chip8 ; CHIP-8
 
         ;; IIgs-Specific Files (ranges)
         DEFINE_ICTRECORD $F0, $50,    ICT_FLAGS_NONE, 0, 0, IconType::iigs        ; IIgs General  $5x

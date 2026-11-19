@@ -13,6 +13,7 @@
         .include "../mgtk/mgtk.inc"
         .include "../common.inc"
         .include "../desktop/desktop.inc"
+        .include "../lib/determine_icon_type.inc"
 
 ;;; ============================================================
 ;;; Memory map
@@ -1442,13 +1443,14 @@ file_entry:  .tag    FileEntry
 
 .proc _DetermineIconType
 PARAM_BLOCK, $06
-        ptr          .addr      ; $06/$07
+        ptr_table    .addr      ; $06/$07
         reserved     .word      ; $08/$09 - must be preserved for `EnumerateDirectory`
-.union                          ; $0A/$0B
-        flags        .byte
-        ptr_filename .addr
+        ptr_filename .addr      ; $0A/$0B
+.union                          ; $0C/$0D
+        ptr_suffix   .addr
+        tmp_aux      .word
 .endunion
-        ptr_suffix   .addr      ; $0C/$0D
+        ict_record   .tag ICTRecord ; $0E...
 END_PARAM_BLOCK
 
         file_type   := file_entry+FileEntry::file_type
@@ -1456,83 +1458,11 @@ END_PARAM_BLOCK
         blocks_used := file_entry+FileEntry::blocks_used
 
         stax    ptr_filename
+        copy16  #icontype_table, ptr_table
+        FALL_THROUGH_TO DetermineIconTypeImpl
 
-        copy16  #icontype_table, ptr
+        .include "../lib/determine_icon_type.s"
 
-    REPEAT
-        ldy     #ICTRecord::mask ; $00 if done
-        lda     (ptr),y
-        IF A = #kICTSentinel \
-          RETURN A=#IconType::generic
-
-        ;; Check type (with mask)
-        and     file_type       ; A = type & mask
-        iny                     ; ASSERT: Y = ICTRecord::filetype
-        ASSERT_EQUALS ICTRecord::filetype, ICTRecord::mask+1
-        cmp     (ptr),y         ; type check
-        bne     next
-
-        ;; Flags
-        iny                     ; ASSERT: Y = ICTRecord::flags
-        ASSERT_EQUALS ICTRecord::flags, ICTRecord::filetype+1
-        copy8   (ptr),y, flags
-
-        ;; Does Aux Type matter, and if so does it match?
-      IF bit flags : NS         ; bit 7 = compare aux
-        iny                     ; ASSERT: Y = FTORecord::aux_suf
-        ASSERT_EQUALS ICTRecord::aux_suf, ICTRecord::flags+1
-        IF u8 aux_type <> (ptr),y GOTO next
-        iny
-        IF u8 aux_type+1 <> (ptr),y GOTO next
-      END_IF
-
-        ;; Does Block Count matter, and if so does it match?
-      IF bit flags : VS         ; bit 6 = compare blocks
-        ldy     #ICTRecord::blocks
-        IF u8 blocks_used <> (ptr),y GOTO next
-        iny
-        IF u8 blocks_used+1 <> (ptr),y GOTO next
-      END_IF
-
-        ;; Filename suffix?
-        lda     flags
-        and     #ICT_FLAGS_SUFFIX
-      IF NOT_ZERO
-        ;; Set up pointers to suffix and filename
-        ldy     #ICTRecord::aux_suf
-        copy16  (ptr),y, ptr_suffix
-        ;; Start at the end of the strings
-        ldy     #0
-        copy8   (ptr_suffix),y, suffix_pos
-        copy8   (ptr_filename),y, filename_pos
-
-        ;; Case-insensitive compare each character
-       DO
-        filename_pos := *+1
-        ldy     #SELF_MODIFIED_BYTE
-        lda     (ptr_filename),y
-        jsr     ToUpperCase
-        suffix_pos := *+1
-        ldy     #SELF_MODIFIED_BYTE
-        cmp     (ptr_suffix),y  ; already uppercase
-        bne     next            ; no match
-
-        ;; Move to previous characters
-        dec     suffix_pos
-        BREAK_IF ZERO           ; if we ran out of suffix, it's a match
-        dec     filename_pos
-        beq     next            ; but if we ran out of filename, it's not
-       WHILE NOT_ZERO           ; otherwise, keep going
-      END_IF
-
-        ;; Have a match
-        ldy     #ICTRecord::icontype
-        lda     (ptr),y
-        rts
-
-        ;; Next entry
-next:   add16_8 ptr, #.sizeof(ICTRecord)
-    FOREVER
 .endproc ; _DetermineIconType
 
 
