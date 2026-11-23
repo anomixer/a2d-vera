@@ -269,7 +269,7 @@
           F2_ERR .sprintf("Unexpected arguments after comparison '%s'", op_str)
         .endif
         .if .tcount({arg2}) > 0 && !(.xmatch({arg2},X) || .xmatch({arg2},Y))
-          F2_ERR .sprintf("Unexpected non-index-register after comparison '%s'", op_str)
+          F2_ERR .sprintf("Unexpected non-index register after comparison '%s'", op_str)
         .endif
 .endmacro
 
@@ -407,9 +407,9 @@
 .macro F2_CODEGEN_BETWEEN cop, lo, hi, op_str
         .local @skip
 
-        .if !(.xmatch({.left(1, {lo})}, {#}))
+        .if ! _is_immediate {lo}
           F2_ERR .sprintf("Expected immediate 1st argument for '%s'", op_str)
-        .elseif !(.xmatch({.left(1, {hi})}, {#}))
+        .elseif ! _is_immediate {hi}
           F2_ERR .sprintf("Expected immediate 2nd argument for '%s'", op_str)
         .endif
 
@@ -485,6 +485,7 @@
 ;;; Parsing
 ;;; --------------------------------------------------
 
+.define _f2_butfirst(arg) .mid(1, 9999, {arg})
 
 .define _f2_is_type(arg) .xmatch({arg}, u8) || .xmatch({arg}, u16) || .xmatch({arg}, s16) || .xmatch({arg}, u24)
 .define _f2_is_register(arg) .xmatch({arg}, A) || .xmatch({arg}, X) || .xmatch({arg}, Y)
@@ -496,61 +497,44 @@
 
 ;;; Consume a single token from `f2_token_list`
 .macro F2_PARSE_CONSUME
-        .define f2_tmp .mid(1, 9999, {f2_token_list})
+        .define f2_tmp _f2_butfirst {f2_token_list}
         .undef f2_token_list
         .define f2_token_list f2_tmp
         .undef f2_tmp
 .endmacro
 
-;;; Consume a token from `f2_token_list`, append to `f2_lhs`
-.macro F2_PARSE_CONSUME_TO_LHS
-        .define f2_tmp f2_lhs
-        .undef f2_lhs
-        .define f2_lhs f2_tmp .left(1, {f2_token_list})
-        .undef f2_tmp
-        F2_PARSE_CONSUME
-.endmacro
-
-;;; Consume a token from `f2_lhs`
-.macro F2_PARSE_CONSUME_LHS
-        .define f2_tmp .mid(1, 9999, {f2_lhs})
-        .undef f2_lhs
-        .define f2_lhs f2_tmp
-        .undef f2_tmp
-        F2_PARSE_CONSUME
-.endmacro
-
-;;; Consume a token from `f2_rhs`
-.macro F2_PARSE_CONSUME_RHS
-        .define f2_tmp .mid(1, 9999, {f2_rhs})
-        .undef f2_rhs
-        .define f2_rhs f2_tmp
-        .undef f2_tmp
-        F2_PARSE_CONSUME
-.endmacro
-
-
 ;;; Parse `f2_token_list` up to a comparison operator (=, <>, <, <=, >, >=); defines `f2_lhs` (caller must .undef it)
-.define _f2_is_compare_op(arg) .xmatch({arg}, =) || .xmatch({arg}, <>) || .xmatch({arg}, <) || .xmatch({arg}, <=) || .xmatch({arg}, >) || .xmatch({arg}, >=)
-.macro F2_PARSE_COMPEXPR_LHS
-        F2_CHECK_BAD_PREFIX_OP
-        .define f2_lhs
-        F2_PARSE_COMPEXPR_LHS2
-.endmacro
-.macro F2_PARSE_COMPEXPR_LHS2
-        F2_CHECK_BAD_PREFIX_OP
-        .if .tcount({f2_token_list}) > 0
-          .define f2_tok .left(1, {f2_token_list})
-          .if ! _f2_is_compare_op {f2_tok}
-            .undef f2_tok
-            F2_PARSE_CONSUME_TO_LHS
-            F2_PARSE_COMPEXPR_LHS2
-          .else
+.macro F2_PARSE_TO_COMP_OP
+        .local @op_index
+        @op_index .set -1
+        .repeat .tcount({f2_token_list}), tindex
+          .if @op_index = -1
+            F2_CHECK_BAD_PREFIX_OP_AT tindex
+            .define f2_tok .mid(tindex, 1, {f2_token_list})
+            .if .xmatch({f2_tok}, = ) || \
+                .xmatch({f2_tok}, <>) || \
+                .xmatch({f2_tok}, < ) || \
+                .xmatch({f2_tok}, <=) || \
+                .xmatch({f2_tok}, > ) || \
+                .xmatch({f2_tok}, >=)
+              @op_index .set tindex
+            .endif
             .undef f2_tok
           .endif
+        .endrepeat
+        .if @op_index = -1
+          @op_index .set .tcount({f2_token_list})
         .endif
+
+        .define f2_tmp f2_token_list
+        .undef f2_token_list
+        .define f2_lhs .left(@op_index, {f2_tmp})
+        .define f2_token_list .mid(@op_index, 9999, {f2_tmp})
+        .undef f2_tmp
 .endmacro
 
+;;; Validates that the passed token is not a numeric literal or
+;;; constant identifier, indicating that a # was likely missed.
 .macro F2_CHECK_NONIMM token, message
         .if .match({token}, 1234)
           F2_ERR .concat("Numeric literal ", message, .sprintf("; did you mean '#%d'?", token))
@@ -563,34 +547,37 @@
 .endmacro
 
 ;;; Watch for ++ or -- in `f2_token_list` as these are silently valid expressions in ca65
-.macro F2_CHECK_BAD_PREFIX_OP
-        .if .xmatch({.left(2, {f2_token_list})}, ++)
+.macro F2_CHECK_BAD_PREFIX_OP_AT index
+        .if .xmatch({.mid(index, 2, {f2_token_list})}, {++})
           F2_ERR "Unexpected '++' (only supported at start of typed comparison)"
-        .elseif .xmatch({.left(2, {f2_token_list})}, --)
+        .elseif .xmatch({.mid(index, 2, {f2_token_list})}, {--})
           F2_ERR "Unexpected '--' (only supported at start of typed comparison)"
         .endif
 .endmacro
 
 ;;; Parse `f2_token_list` up to an "AND" or an "OR"; defines `f2_rhs` (caller must .undef it)
-.macro F2_PARSE_RHS
-        F2_CHECK_BAD_PREFIX_OP
-        .define f2_rhs
-        F2_PARSE_RHS2
-.endmacro
-.macro F2_PARSE_RHS2
-        F2_CHECK_BAD_PREFIX_OP
-        .if .tcount({f2_token_list}) = 0
-          .exitmacro
+.macro F2_PARSE_TO_LOGICAL_OP
+        .local @op_index
+        @op_index .set -1
+        .repeat .tcount({f2_token_list}), tindex
+          .if @op_index = -1
+            F2_CHECK_BAD_PREFIX_OP_AT tindex
+            .define f2_tok .mid(tindex, 1, {f2_token_list})
+            .if .xmatch({f2_tok}, AND) || .xmatch({f2_tok}, OR)
+              @op_index .set tindex
+            .endif
+            .undef f2_tok
+          .endif
+        .endrepeat
+        .if @op_index = -1
+          @op_index .set .tcount({f2_token_list})
         .endif
 
-        .if !(.xmatch({.left(1, {f2_token_list})}, AND) || .xmatch({.left(1, {f2_token_list})}, OR))
-          .define f2_tmp f2_rhs
-          .undef f2_rhs
-          .define f2_rhs f2_tmp .left(1, {f2_token_list})
-          .undef f2_tmp
-          F2_PARSE_CONSUME
-          F2_PARSE_RHS2
-        .endif
+        .define f2_tmp f2_token_list
+        .undef f2_token_list
+        .define f2_rhs .left(@op_index, {f2_tmp})
+        .define f2_token_list .mid(@op_index, 9999, {f2_tmp})
+        .undef f2_tmp
 .endmacro
 
 ;;; Parse passed args up to a ","; defines `f2_first` and `f2_second` (caller must .undef them)
@@ -603,7 +590,7 @@
 .endmacro
 
 ;;; Parse a type-based binary operation, e.g. `u16 var1 < var2`
-.macro F2_PARSE_TYPECOMP
+.macro F2_PARSE_AND_GEN_TYPECOMP
         ;; Parse type
         .define f2_type .left(1, {f2_token_list})
         .if !_f2_is_type {f2_type}
@@ -629,7 +616,7 @@
         .if .tcount({f2_token_list}) = 0
           F2_ERR_EXPECTED .sprintf("argument(s) after type '%s'", .string(f2_type))
         .endif
-        F2_PARSE_COMPEXPR_LHS
+        F2_PARSE_TO_COMP_OP     ; .defines `f2_lhs`
 
         ;; Parse the operator
         .if .tcount({f2_token_list}) = 0
@@ -658,7 +645,7 @@
         .if .tcount({f2_token_list}) = 0
           F2_ERR_EXPECTED .sprintf("argument(s) after operator '%s'", f2_op_str)
         .endif
-        F2_PARSE_RHS
+        F2_PARSE_TO_LOGICAL_OP  ; .defines `f2_rhs`
 
         F2_CHECK_NONIMM {f2_rhs}, .sprintf("in '%s' comparison", f2_op_str)
 
@@ -809,13 +796,15 @@
 .endmacro
 
 ;;; Parse a relational expression / binary operation (e.g. `A = #7`)
-.macro F2_PARSE_REGCOMP
+.macro F2_PARSE_AND_GEN_REGCOMP
+        ;; Parse LHS to the operator
         .define f2_lhs .left(1, {f2_token_list})
         .if !_f2_is_register {f2_lhs}
           F2_ERR_UNREACHED
         .endif
         F2_PARSE_CONSUME
 
+        ;; Parse the operator
         .if .tcount({f2_token_list}) = 0
           F2_ERR_EXPECTED "operator (=, <>, <, >=, IN, BETWEEN)"
         .endif
@@ -846,13 +835,15 @@
 
         F2_PARSE_CONSUME
 
+        ;; Parse the RHS expression
         .if .tcount({f2_token_list}) = 0
           F2_ERR_EXPECTED .sprintf("argument(s) after '%s'", f2_op_str)
         .endif
-        F2_PARSE_RHS
+        F2_PARSE_TO_LOGICAL_OP  ; .defines `f2_rhs`
 
         F2_CHECK_NONIMM {f2_rhs}, .sprintf("in '%s' comparison", f2_op_str)
 
+        ;; Code generation
         .if .xmatch({f2_op}, IN)
           .if .xmatch({f2_lhs}, A)
             F2_CODEGEN_IN_LIST CMP, {f2_rhs}
@@ -878,7 +869,7 @@
           @f2_negate_flag .set !(@f2_negate_flag)
 
         .elseif .xmatch({f2_op}, BETWEEN)
-          F2_PARSE_PAIR f2_op_str, f2_rhs
+          F2_PARSE_PAIR f2_op_str, f2_rhs ; .defines `f2_first` and `f2_second`
 
           .if .xmatch({f2_lhs}, A)
             F2_CODEGEN_BETWEEN CMP, {f2_first}, {f2_second}, f2_op_str
@@ -894,7 +885,7 @@
           .undef f2_second
 
         .elseif .xmatch({f2_op}, NOT_BETWEEN)
-          F2_PARSE_PAIR f2_op_str, f2_rhs
+          F2_PARSE_PAIR f2_op_str, f2_rhs ; .defines `f2_first` and `f2_second`
 
           @f2_negate_flag .set !(@f2_negate_flag)
           .if .xmatch({f2_lhs}, A)
@@ -948,10 +939,12 @@
 .endmacro
 
 ;;; Parse a unary test (e.g. CS, NC, ...)
-.macro F2_PARSE_FLAG_TEST
+.macro F2_PARSE_AND_GEN_FLAG_TEST
+        ;; Parse the operator
         .define f2_flag_test .left(1, {f2_token_list})
         F2_PARSE_CONSUME
 
+        ;; Code generation
         .if .xmatch({f2_flag_test}, ZS)
           F2_CODEGEN_BRANCH_WITH_FLAGS BEQ, BNE
         .elseif .xmatch({f2_flag_test}, ZC)
@@ -976,7 +969,7 @@
 .endmacro
 
 ;;; Parse a boolean expression
-.macro F2_PARSE_BEXPR
+.macro F2_PARSE_AND_GEN_BEXPR
         .define f2_tok .left(1, {f2_token_list})
         .if .xmatch({f2_tok}, NOT)
           .undef f2_tok
@@ -984,25 +977,25 @@
           ;; NOT - toggle the invert flag, recurse
           F2_PARSE_CONSUME
           @f2_negate_flag .set !(@f2_negate_flag)
-          F2_PARSE_BEXPR
+          F2_PARSE_AND_GEN_BEXPR
 
         .elseif _f2_is_type {f2_tok}
           .undef f2_tok
 
           ;; type - start of a type-based binary operation (e.g. `u16 var1 < var2`)
-          F2_PARSE_TYPECOMP
+          F2_PARSE_AND_GEN_TYPECOMP
 
         .elseif _f2_is_register {f2_tok}
           .undef f2_tok
 
           ;; register - start of a relational expression (comparison)
-          F2_PARSE_REGCOMP
+          F2_PARSE_AND_GEN_REGCOMP
 
         .elseif _f2_is_flag_test {f2_tok}
           .undef f2_tok
 
           ;; flag test
-          F2_PARSE_FLAG_TEST
+          F2_PARSE_AND_GEN_FLAG_TEST
 
         .else
           .undef f2_tok
@@ -1011,9 +1004,9 @@
 .endmacro
 
 ;;; Parse a compound boolean expression (joined by AND/OR)
-.macro F2_PARSE_BEXPR_LOOP
+.macro F2_PARSE_AND_GEN_BEXPR_LOOP
         @f2_negate_flag .set 0
-        F2_PARSE_BEXPR
+        F2_PARSE_AND_GEN_BEXPR
 
         .if .tcount({f2_token_list}) = 0
           .exitmacro
@@ -1021,62 +1014,62 @@
 
         .if .xmatch({.left(1, {f2_token_list})}, AND)
           F2_PARSE_CONSUME
-          F2_PARSE_BEXPR_LOOP
+          F2_PARSE_AND_GEN_BEXPR_LOOP
         .elseif .xmatch({.left(1, {f2_token_list})}, OR)
           F2_PARSE_CONSUME
-          F2_PARSE_BEXPR_LOOP
+          F2_PARSE_AND_GEN_BEXPR_LOOP
         .else
           F2_ERR_UNEXPECTED_TOKEN
         .endif
 .endmacro
 
-;;; Parse (and emit) a statement - everything up to next ':'
-.macro F2_PARSE_STATEMENT
-        .define f2_stmt .left(1, {f2_token_list})
-
-        F2_PARSE_CONSUME
-        F2_PARSE_STATEMENT2
-
-        f2_stmt
-
-        .undef f2_stmt
-.endmacro
-.macro F2_PARSE_STATEMENT2
-        .if .tcount({f2_token_list}) = 0
-          F2_ERR_EXPECTED "end-of-statement (':'); did you forget a type prefix ('u8', etc)?"
-        .endif
-
-        .if .xmatch({.left(1, {f2_token_list})}, :)
-          F2_PARSE_CONSUME
-        .else
-          .define f2_tmp f2_stmt
-          .undef f2_stmt
-          .define f2_stmt f2_tmp .left(1, {f2_token_list})
-          .undef f2_tmp
-          F2_PARSE_CONSUME
-          F2_PARSE_STATEMENT2
-        .endif
-.endmacro
-
-.macro F2_PARSE_STATEMENTS
-        ;; If it is not the start of a condition, then it must be a
-        ;; statement. Parse until the ':' end-of-statement delimiter.
+;;; Parse `f2_token_list` and emit any leading statements until a condition
+;;; is found.
+.macro F2_PARSE_AND_GEN_STATEMENTS
         .define f2_tok .left(1, {f2_token_list})
         .if _f2_is_cond_start {f2_tok}
+          ;; start of condition (flag test, register, or type)
           .undef f2_tok
-        .else
-          .undef f2_tok
-          F2_PARSE_STATEMENT
-
-          .ifnblank f2_token_list
-            F2_PARSE_STATEMENTS
-          .endif
-
+          .exitmacro
         .endif
+        .undef f2_tok
+
+        ;; If it is not the start of a condition, then (per grammar)
+        ;; it must be a statement. Parse until the end-of-statement
+        ;; delimiter (':').
+        .local @op_index
+        @op_index .set -1
+        .repeat .tcount({f2_token_list}), tindex
+          .if @op_index = -1
+            .if .xmatch({.mid(tindex, 1, {f2_token_list})}, {:})
+              @op_index .set tindex
+            .endif
+          .endif
+        .endrepeat
+        .if @op_index = -1
+          .undef f2_token_list
+          .define f2_token_list ; empty for correct error logging
+          F2_ERR_EXPECTED "end-of-statement (':'); did you forget a type prefix ('u8', etc)?"
+        .endif
+        .if @op_index = .tcount({f2_token_list}) - 1
+          .undef f2_token_list
+          .define f2_token_list ; empty for correct error logging
+          F2_ERR_EXPECTED "condition after end-of-statement (':')"
+        .endif
+
+        ;; Code generation (just emit the statement)
+        .left(@op_index, {f2_token_list})
+
+        ;; Consume and recurse
+        .define f2_tmp f2_token_list
+        .undef f2_token_list
+        .define f2_token_list .mid(@op_index + 1, 9999, {f2_tmp})
+        .undef f2_tmp
+        F2_PARSE_AND_GEN_STATEMENTS
 .endmacro
 
 ;;; Parse a condition
-.macro F2_PARSE_COND sense, stay_target, branch_target, token_list
+.macro F2_PARSE_AND_GEN_COND sense, stay_target, branch_target, token_list
         .ifblank token_list
           F2_ERR "Empty expression"
         .endif
@@ -1087,9 +1080,9 @@
         .define f2_branch_target branch_target
 
         ;; Condition may be preceded by statements
-        F2_PARSE_STATEMENTS
+        F2_PARSE_AND_GEN_STATEMENTS
 
-        F2_PARSE_BEXPR_LOOP
+        F2_PARSE_AND_GEN_BEXPR_LOOP
         .undef f2_token_list
         .undef f2_stay_target
         .undef f2_branch_target
@@ -1132,7 +1125,7 @@
 .macro F2_PARSE_AND_GEN_BIT target,expr
         .local @stay
 
-        F2_PARSE_COND ::F2_SENSE_BIT, @stay, target, {expr}
+        F2_PARSE_AND_GEN_COND ::F2_SENSE_BIT, @stay, target, {expr}
 
         @stay := *
         .refto @stay
@@ -1142,7 +1135,7 @@
 .macro F2_PARSE_AND_GEN_BIF target,expr
         .local @stay
 
-        F2_PARSE_COND ::F2_SENSE_BIF, @stay, target, {expr}
+        F2_PARSE_AND_GEN_COND ::F2_SENSE_BIF, @stay, target, {expr}
 
         @stay := *
         .refto @stay
@@ -1193,31 +1186,53 @@
 .macro F2_FIND_SHORTCUT
         .define f2_shortcut_op
         .define f2_shortcut_rhs
-        .define f2_token_list f2_params
-        .undef f2_params
-        .define f2_params
-        F2_FIND_SHORTCUT2
-        .undef f2_token_list
-.endmacro
-.macro F2_FIND_SHORTCUT2
-        .if .tcount({f2_token_list}) = 0
+
+        ;; Do a iterative pass without token list manipulation to look
+        ;; for a shortcut token; this reduces build time.
+        .local @op_index
+        @op_index .set -1
+        .repeat .tcount({f2_params}), tindex
+          .if @op_index = -1
+            .define f2_tok .mid(tindex, 1, {f2_params})
+            .if .xmatch({f2_tok}, GOTO    ) || \
+                .xmatch({f2_tok}, JUMP    ) || \
+                .xmatch({f2_tok}, REDO    ) || \
+                .xmatch({f2_tok}, CONTINUE) || \
+                .xmatch({f2_tok}, BREAK   ) || \
+                .xmatch({f2_tok}, RETURN  )
+              @op_index .set tindex
+            .endif
+            .undef f2_tok
+          .endif
+        .endrepeat
+        .if @op_index = -1
           .exitmacro
         .endif
 
-        .if .xmatch({.left(1, {f2_token_list})}, GOTO) || .xmatch({.left(1, {f2_token_list})}, JUMP)
-          .undef f2_shortcut_op
-          .define f2_shortcut_op .left(1, {f2_token_list})
-          F2_PARSE_CONSUME
-          .if .tcount({f2_token_list}) = 0
+        ;; Leave `f2_params` as prefix, define `f2_shortcut_op` and `f2_shortcut_rhs`
+        .define f2_tmp f2_params
+        .undef f2_params
+        .define f2_params .left(@op_index, {f2_tmp})
+
+        .undef f2_shortcut_op
+        .define f2_shortcut_op .mid(@op_index, 1, {f2_tmp})
+
+        .undef f2_shortcut_rhs
+        .define f2_shortcut_rhs .mid(@op_index + 1, 9999, {f2_tmp})
+
+        .undef f2_tmp
+
+        ;; Post-process
+        .if .xmatch({f2_shortcut_op}, GOTO) || .xmatch({f2_shortcut_op}, JUMP)
+          ;; `GOTO`/`JUMP` - RHS should be target
+          .if .tcount({f2_shortcut_rhs}) = 0
+            .define f2_token_list f2_shortcut_rhs ; for error logging
             F2_ERR_EXPECTED .sprintf("target after %s", .string(f2_shortcut_op))
           .endif
-          .undef f2_shortcut_rhs
-          .define f2_shortcut_rhs f2_token_list
-        .elseif .xmatch({.left(1, {f2_token_list})}, BREAK) || .xmatch({.left(1, {f2_token_list})}, REDO) || .xmatch({.left(1, {f2_token_list})}, CONTINUE)
-          .undef f2_shortcut_op
-          .define f2_shortcut_op .left(1, {f2_token_list})
-          F2_PARSE_CONSUME
-          .if .tcount({f2_token_list}) <> 0
+        .elseif .xmatch({f2_shortcut_op}, BREAK) || .xmatch({f2_shortcut_op}, REDO) || .xmatch({f2_shortcut_op}, CONTINUE)
+          ;; `BREAK`/`REDO`/`CONTINUE` - RHS should be empty, rewritten to appropriate loop identifier
+          .if .tcount({f2_shortcut_rhs}) <> 0
+            .define f2_token_list f2_shortcut_rhs ; for error logging
             F2_ERR_EXPECTED .sprintf("nothing after %s", .string(f2_shortcut_op))
           .endif
           .undef f2_shortcut_rhs
@@ -1230,19 +1245,10 @@
           .else
             F2_ERR_UNREACHED
           .endif
-        .elseif .xmatch({.left(1, {f2_token_list})}, RETURN)
-          .undef f2_shortcut_op
-          .define f2_shortcut_op .left(1, {f2_token_list})
-          F2_PARSE_CONSUME
-          .undef f2_shortcut_rhs
-          .define f2_shortcut_rhs f2_token_list
+        .elseif .xmatch({f2_shortcut_op}, RETURN)
+          ;; `RETURN` - as is
         .else
-          .define f2_tmp f2_params
-          .undef f2_params
-          .define f2_params f2_tmp .left(1, {f2_token_list})
-          .undef f2_tmp
-          F2_PARSE_CONSUME
-          F2_FIND_SHORTCUT2
+          F2_ERR_UNREACHED
         .endif
 .endmacro
 
@@ -1753,74 +1759,62 @@
 ;;; * `dec16` as: SET u16 --var
 
 ;;; Parse `f2_token_list` up to an assignment operator (=, +=, -=, <<=, >>=); defines `f2_target` (caller must .undef it)
-.macro F2_PARSE_ASSIGNMENT_TARGET
-        F2_CHECK_BAD_PREFIX_OP
-        .define f2_target
-        F2_PARSE_ASSIGNMENT_TARGET2
-.endmacro
-.macro F2_PARSE_ASSIGNMENT_TARGET2
-        F2_CHECK_BAD_PREFIX_OP
-        .if .tcount({f2_token_list}) > 0
-          ;; Note that the assignment op may be 1 or 2 tokens long
-          .if !(.xmatch({.left(1, {f2_token_list})}, =) || .xmatch({.left(2, {f2_token_list})}, +=) || .xmatch({.left(2, {f2_token_list})}, -=) || .xmatch({.left(2, {f2_token_list})}, <<=) || .xmatch({.left(2, {f2_token_list})}, >>=))
-            .define f2_tmp f2_target
-            .undef f2_target
-            .define f2_target f2_tmp .left(1, {f2_token_list})
-            .undef f2_tmp
-            F2_PARSE_CONSUME
-            F2_PARSE_ASSIGNMENT_TARGET2
+.macro F2_PARSE_TO_ASSIGNMENT_OP
+        .local @op_index
+        @op_index .set -1
+        .repeat .tcount({f2_token_list}), tindex
+          .if @op_index = -1
+            F2_CHECK_BAD_PREFIX_OP_AT tindex
+            .if .xmatch({.mid(tindex, 1, {f2_token_list})}, =  ) || \
+                .xmatch({.mid(tindex, 2, {f2_token_list})}, += ) || \
+                .xmatch({.mid(tindex, 2, {f2_token_list})}, -= ) || \
+                .xmatch({.mid(tindex, 2, {f2_token_list})}, <<=) || \
+                .xmatch({.mid(tindex, 2, {f2_token_list})}, >>=)
+              @op_index .set tindex
+            .endif
           .endif
+        .endrepeat
+        .if @op_index = -1
+          @op_index .set .tcount({f2_token_list})
         .endif
+
+        .define f2_tmp f2_token_list
+        .undef f2_token_list
+        .define f2_target .left(@op_index, {f2_tmp})
+        .define f2_token_list .mid(@op_index, 9999, {f2_tmp})
+        .undef f2_tmp
 .endmacro
 
 ;;; Parse `f2_token_list` up to a supported math operator (+, -); defines `f2_lhs` (caller must .undef it)
 ;;; Handles parenthesized expressions.
-.macro F2_PARSE_ASSIGNMENT_LHS
-        .define f2_lhs
-        f2_pdepth .set 0
-        F2_PARSE_ASSIGNMENT_LHS2
-.endmacro
-.macro F2_PARSE_ASSIGNMENT_LHS2
-        F2_CHECK_BAD_PREFIX_OP
-        .if .tcount({f2_token_list}) > 0
-          ;; If a '(' is seen, switch to parsing via subexpr which
-          ;; doesn't terminate until a matching number of ')' have
-          ;; been seen.
-          .if .xmatch({.left(1, {f2_token_list})}, {(})
-            f2_pdepth .set f2_pdepth + 1
-            F2_PARSE_CONSUME_TO_LHS
-            F2_PARSE_ASSIGNMENT_LHS_SUBEXPR
-            F2_PARSE_ASSIGNMENT_LHS2
+.macro F2_PARSE_TO_MATH_OP
+        .local @pdepth
+        @pdepth .set 0
 
-          ;; Otherwise, terminate on binary op (+, -)
-          .elseif !(.xmatch({.left(1, {f2_token_list})}, +) || .xmatch({.left(1, {f2_token_list})}, -))
-            F2_PARSE_CONSUME_TO_LHS
-            F2_PARSE_ASSIGNMENT_LHS2
-          .endif
-        .endif
-.endmacro
-.macro F2_PARSE_ASSIGNMENT_LHS_SUBEXPR
-        F2_CHECK_BAD_PREFIX_OP
-        .if .tcount({f2_token_list}) > 0
-
-          .if .xmatch({.left(1, {f2_token_list})}, {(})
-            f2_pdepth .set f2_pdepth + 1
-            F2_PARSE_CONSUME_TO_LHS
-            F2_PARSE_ASSIGNMENT_LHS_SUBEXPR
-
-          .elseif .xmatch({.left(1, {f2_token_list})}, {)})
-            f2_pdepth .set f2_pdepth - 1
-            F2_PARSE_CONSUME_TO_LHS
-
-            .if f2_pdepth
-              F2_PARSE_ASSIGNMENT_LHS_SUBEXPR
+        .local @op_index
+        @op_index .set -1
+        .repeat .tcount({f2_token_list}), tindex
+          .if @op_index = -1
+            .define f2_tok .mid(tindex, 1, {f2_token_list})
+            .if .xmatch({f2_tok}, {(})
+              @pdepth .set @pdepth + 1
+            .elseif .xmatch({f2_tok}, {)})
+              @pdepth .set @pdepth - 1
+            .elseif @pdepth = 0 && (.xmatch({f2_tok}, {+}) ||  .xmatch({f2_tok}, {-}))
+              @op_index .set tindex
             .endif
-
-          .else
-            F2_PARSE_CONSUME_TO_LHS
-            F2_PARSE_ASSIGNMENT_LHS_SUBEXPR
+            .undef f2_tok
           .endif
+        .endrepeat
+        .if @op_index = -1
+          @op_index .set .tcount({f2_token_list})
         .endif
+
+        .define f2_tmp f2_token_list
+        .undef f2_token_list
+        .define f2_lhs .left(@op_index, {f2_tmp})
+        .define f2_token_list .mid(@op_index, 9999, {f2_tmp})
+        .undef f2_tmp
 .endmacro
 
 .macro F2_CODEGEN_LOOP shift_op, load_op, decr_op, count, target
@@ -1853,7 +1847,7 @@
         .if .tcount({f2_token_list}) = 0
           F2_ERR_EXPECTED .sprintf("assignment target")
         .endif
-        F2_PARSE_ASSIGNMENT_TARGET
+        F2_PARSE_TO_ASSIGNMENT_OP ; .defines `f2_target`
         .if .xmatch({.left(1, {f2_target})}, {(}) && .xmatch({.right(1, {f2_target})}, {)})
           ;; strip parentheses from target expression
           .define f2_tmp f2_target
@@ -1898,7 +1892,7 @@
         .if .tcount({f2_token_list}) = 0
           F2_ERR_EXPECTED .sprintf("argument(s) after operator '%s'", f2_assign_op_str)
         .endif
-        F2_PARSE_ASSIGNMENT_LHS
+        F2_PARSE_TO_MATH_OP     ; .defines `f2_lhs`
         .define f2_tok .left(1, {f2_lhs})
         F2_CHECK_NONIMM {f2_tok}, .sprintf("after '%s'", f2_assign_op_str)
         .undef f2_tok
@@ -1932,13 +1926,11 @@
               .endif
             .endif
 
-            .if !.xmatch({.left(1, {f2_lhs})}, #)
+            .if ! _is_immediate {f2_lhs}
               F2_ERR_EXPECTED .sprintf("immediate argument for '%s'", f2_assign_op_str)
             .endif
 
-            F2_PARSE_CONSUME_LHS
-
-            .if !.const(f2_lhs)
+            .if !.const(_immediate_value {f2_lhs})
               F2_ERR_EXPECTED .sprintf("constant expression after '%s'", f2_assign_op_str)
             .endif
           .endif
@@ -1952,9 +1944,9 @@
             .elseif .xmatch({f2_assign_op}, -=)
               sub8 f2_target, f2_lhs, f2_target
             .elseif .xmatch({f2_assign_op}, <<=)
-              F2_CODEGEN_LOOP asl, f2_loop_load, f2_loop_decr, {f2_lhs}, {f2_target}
+              F2_CODEGEN_LOOP asl, f2_loop_load, f2_loop_decr, _immediate_value {f2_lhs}, {f2_target}
             .elseif .xmatch({f2_assign_op}, >>=)
-              F2_CODEGEN_LOOP lsr, f2_loop_load, f2_loop_decr, {f2_lhs}, {f2_target}
+              F2_CODEGEN_LOOP lsr, f2_loop_load, f2_loop_decr, _immediate_value {f2_lhs}, {f2_target}
             .else
               F2_ERR_UNREACHED
             .endif
@@ -1977,8 +1969,7 @@
               .elseif .xmatch({f2_lhs}, XY)
                 addxy f2_target
               .elseif .xmatch({.left(1, {f2_lhs})}, u8)
-                F2_PARSE_CONSUME_LHS
-                add16_8 f2_target, f2_lhs
+                add16_8 f2_target, _f2_butfirst {f2_lhs}
               .else
                 add16 f2_target, f2_lhs, f2_target
               .endif
@@ -1988,15 +1979,14 @@
               .elseif .xmatch({f2_lhs}, XY)
                 F2_ERR "subxy not defined"
               .elseif .xmatch({.left(1, {f2_lhs})}, u8)
-                F2_PARSE_CONSUME_LHS
-                sub16_8 f2_target, f2_lhs
+                sub16_8 f2_target, _f2_butfirst {f2_lhs}
               .else
                 sub16 f2_target, f2_lhs, f2_target
               .endif
             .elseif .xmatch({f2_assign_op}, <<=)
-              F2_CODEGEN_LOOP asl16, f2_loop_load, f2_loop_decr, {f2_lhs}, {f2_target}
+              F2_CODEGEN_LOOP asl16, f2_loop_load, f2_loop_decr, _immediate_value {f2_lhs}, {f2_target}
             .elseif .xmatch({f2_assign_op}, >>=)
-              F2_CODEGEN_LOOP lsr16, f2_loop_load, f2_loop_decr, {f2_lhs}, {f2_target}
+              F2_CODEGEN_LOOP lsr16, f2_loop_load, f2_loop_decr, _immediate_value {f2_lhs}, {f2_target}
             .else
               F2_ERR_UNREACHED
             .endif
@@ -2022,9 +2012,9 @@
             .elseif .xmatch({f2_assign_op}, -=)
               sub32 f2_target, f2_lhs, f2_target
             .elseif .xmatch({f2_assign_op}, <<=)
-              F2_CODEGEN_LOOP asl32, f2_loop_load, f2_loop_decr, {f2_lhs}, {f2_target}
+              F2_CODEGEN_LOOP asl32, f2_loop_load, f2_loop_decr, _immediate_value {f2_lhs}, {f2_target}
             .elseif .xmatch({f2_assign_op}, >>=)
-              F2_CODEGEN_LOOP lsr32, f2_loop_load, f2_loop_decr, {f2_lhs}, {f2_target}
+              F2_CODEGEN_LOOP lsr32, f2_loop_load, f2_loop_decr, _immediate_value {f2_lhs}, {f2_target}
             .else
               F2_ERR_UNREACHED
             .endif
@@ -2087,8 +2077,7 @@
               .elseif .xmatch({f2_rhs}, XY)
                 addxy f2_lhs, f2_target
               .elseif .xmatch({.left(1, {f2_rhs})}, u8)
-                F2_PARSE_CONSUME_RHS
-                add16_8 f2_lhs, f2_rhs, f2_target
+                add16_8 f2_lhs, _f2_butfirst {f2_rhs}, f2_target
               .else
                 add16 f2_lhs, f2_rhs, f2_target
               .endif
@@ -2096,8 +2085,7 @@
               .if .xmatch({f2_rhs}, AX)
                 subax f2_lhs, f2_target
               .elseif .xmatch({.left(1, {f2_rhs})}, u8)
-                F2_PARSE_CONSUME_RHS
-                sub16_8 f2_lhs, f2_rhs, f2_target
+                sub16_8 f2_lhs, _f2_butfirst {f2_rhs}, f2_target
               .else
                 sub16 f2_lhs, f2_rhs, f2_target
               .endif
