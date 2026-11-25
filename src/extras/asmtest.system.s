@@ -1512,6 +1512,9 @@ varC:   .word   9870
         SET u8 varA >>= #1
         SET u8 varA >>= #4
 
+        SET u8 ++varA
+        SET u8 --varA
+
 ;;; u16
         SET u16 varB = varA
         SET u16 varB = #kConstant
@@ -1547,6 +1550,9 @@ varC:   .word   9870
         SET u16 varA -= u8 varB
         SET u16 varC = varA - u8 varB
 
+        SET u16 ++varA
+        SET u16 --varA
+
 ;;; s16
         SET s16 varB = varA
         SET s16 varC = varA + varB
@@ -1577,9 +1583,14 @@ varC:   .word   9870
         SET s16 varA -= u8 varB
         SET s16 varC = varA - u8 varB
 
+        SET u16 ++varA
+        SET u16 --varA
+
 ;;; u24
         SET u24 varB = varA
         SET u24 varB = #$123456
+
+        SET u24 ++varA
 
 ;;; u32
         SET u32 varB = varA
@@ -1695,5 +1706,20 @@ __BEGIN_CASES__
         SET u16 target <<= varA          ; SET: Expected immediate argument for '<<='
         SET u16 target <<= #kNonConstant ; SET: Expected constant expression after '<<='
         SET u16 target <<= #0            ; SET: Expected non-zero count
+
+        SET u24 --target                ; SET: dec24 not defined
+        SET u32 ++target                ; SET: inc32 not defined
+        SET u32 --target                ; SET: dec32 not defined
+
+        SET u16 varA -= XY              ; SET: subxy not defined
+
+        SET u24 --varA                  ; SET: dec24 not defined
+        SET u32 ++varA                  ; SET: inc32 not defined
+        SET u32 --varA                  ; SET: dec32 not defined
+
+        SET u24 varA += varB            ; SET: add24 not defined
+        SET u24 varA -= varB            ; SET: sub24 not defined
+        SET u24 varA = varB + varC      ; SET: add24 not defined
+        SET u24 varA = varB - varC      ; SET: sub24 not defined
 __END_CASES__
 .endif
