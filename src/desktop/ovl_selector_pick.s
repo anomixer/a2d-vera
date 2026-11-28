@@ -8,6 +8,22 @@
 
         BEGINSEG OverlayShortcutPick
 
+;;; The overlay is responsible for managing updates to the shortcuts
+;;; list, with these commands:
+;;; * Add
+;;;   * show shortcut editor (custom file dialog)
+;;;   * add entry to `SELECTOR.LIST` file
+;;; * Edit
+;;;   * show shortcut picker
+;;;   * show shortcut editor (custom file dialog)
+;;;   * update entry in `SELECTOR.LIST` file
+;;; * Delete
+;;;   * show shortcut picker
+;;;   * remove entry from `SELECTOR.LIST` file
+;;; * Run
+;;;   * show shortcut picker
+;;;   * return selected entry path/flags to caller
+
 .scope SelectorPickOverlay
 
         MLIEntry := main::MLIRelayImpl
@@ -23,9 +39,6 @@ selector_list := SELECTOR_FILE_BUF
 PARAM_BLOCK, $1400
 orig_prefix     .res    ::kSelectorListBufSize
 current_prefix  .res    ::kPathBufferSize
-
-;;; Table for 24 entries; index (0...23) if in use, $FF if empty
-entries_flag_table .res ::kSelectorListNumEntries
 END_PARAM_BLOCK
 
 Exec:
@@ -110,10 +123,10 @@ DoAdd:  ldx     #kRunListPrimary
         ;; Map to `kCopyOnBoot` to `kSelectorEntryCopyOnBoot` etc
         copy8   copy_when_conversion_table-1,y, copy_when
 
+        ;; Need to reload file since buffers are trashed by file dialog.
         jsr     ReadFile
-    IF NS
-        jmp     Exit
-    END_IF
+        IF NS \
+          THEN TAIL_CALL Exit
 
         copy16  selector_list, num_primary_run_list_entries
 
@@ -158,14 +171,11 @@ copy_when:
 
         jsr     OpenWindow
         jsr     ReadFile
-    IF NS
-        jmp     DoCancel
-    END_IF
+        IF NS \
+          JUMP DoCancel
 
         copy8   selector_list + kSelectorListNumPrimaryRunListOffset, num_primary_run_list_entries
         copy8   selector_list + kSelectorListNumSecondaryRunListOffset, num_secondary_run_list_entries
-        jsr     PopulateEntriesFlagTable
-
         OPTK_CALL OPTK::Draw, shortcut_picker_params
 
         FALL_THROUGH_TO DialogLoop
@@ -221,9 +231,8 @@ copy_when:
         jsr     main::CopyToPathBuf0
 
         ldx     #kRunListPrimary
-    IF u8 shortcut_picker_record::selected_index >= #kSelectorListNumPrimaryRunListEntries
-        inx                     ; `kRunListSecondary`
-    END_IF
+        IF u8 shortcut_picker_record::selected_index >= #kSelectorListNumPrimaryRunListEntries \
+          THEN inx              ; `kRunListSecondary`
 
         ;; Map to `kSelectorEntryCopyOnBoot` to `kCopyOnBoot` etc
         .define swizzle(n) (n >> 7) + 1 + (n > 127)
@@ -259,18 +268,17 @@ copy_when:
         ;; Map to `kCopyOnBoot` to `kSelectorEntryCopyOnBoot` etc
         copy8   copy_when_conversion_table-1,y, copy_when
 
+        ;; Need to reload file since buffers are trashed by file dialog.
         jsr     ReadFile
-    IF NS
-        jmp     Exit
-    END_IF
+        IF NS \
+          THEN TAIL_CALL Exit
 
     IF u8 shortcut_picker_record::selected_index >= #kSelectorListNumPrimaryRunListEntries
         ;; Was on secondary run list - is it still?
         IF u8 which_run_list = #kRunListSecondary GOTO reuse_same_index
 
-      IF u8 num_primary_run_list_entries = #kSelectorListNumPrimaryRunListEntries
-        jmp     ShowFullAlert
-      END_IF
+        IF u8 num_primary_run_list_entries = #kSelectorListNumPrimaryRunListEntries \
+          THEN TAIL_CALL ShowFullAlert
 
         CALL    RemoveEntry, A=shortcut_picker_record::selected_index
 
@@ -283,9 +291,8 @@ copy_when:
         ;; Was on primary run list - is it still?
         IF u8 which_run_list = #kRunListPrimary GOTO reuse_same_index
 
-      IF u8 num_secondary_run_list_entries = #kSelectorListNumSecondaryRunListEntries
-        jmp     ShowFullAlert
-      END_IF
+        IF u8 num_secondary_run_list_entries = #kSelectorListNumSecondaryRunListEntries \
+          THEN TAIL_CALL ShowFullAlert
 
         CALL    RemoveEntry, A=shortcut_picker_record::selected_index
 
@@ -507,34 +514,6 @@ handle_button:
 .endproc ; UpdateOKButton
 
 ;;; ============================================================
-
-.proc PopulateEntriesFlagTable
-        ldx     #kSelectorListNumEntries - 1
-        lda     #$FF
-    DO
-        sta     entries_flag_table,x
-    WHILE dex : POS
-
-        ldx     #0
-    DO
-        BREAK_IF X = num_primary_run_list_entries
-        txa
-        sta     entries_flag_table,x
-    WHILE inx : NOT_ZERO
-
-        ldx     #0
-    DO
-        BREAK_IF X = num_secondary_run_list_entries
-        txa
-        clc
-        adc     #kSelectorListNumPrimaryRunListEntries
-        sta     entries_flag_table+8,x
-    WHILE inx : NOT_ZERO
-
-        rts
-.endproc ; PopulateEntriesFlagTable
-
-;;; ============================================================
 ;;; Assigns name, flags, and path to an entry in the file buffer
 ;;; and (if it's in the primary run list) also updates the
 ;;; resource data (used for menus, etc).
@@ -568,9 +547,8 @@ handle_button:
     WHILE dey : POS
 
         ;; If primary run list, update the menu as well
-    IF u8 index < #kSelectorListNumPrimaryRunListEntries
-        jsr     UpdateMenuResources
-    END_IF
+        IF u8 index < #kSelectorListNumPrimaryRunListEntries \
+          THEN jsr UpdateMenuResources
 
         rts
 
@@ -701,9 +679,8 @@ finish:
         adc     #kSelectorMenuFixedItems
         sta     selector_menu
         ;; No separator if it is last
-    IF A = #kSelectorMenuFixedItems
-        dec     selector_menu
-    END_IF
+        IF A = #kSelectorMenuFixedItems \
+          THEN dec selector_menu
 
         ;; Re-initialize the menu so that new widths can be pre-computed.
         ;; That will un-hilite the Selector menu, so re-hilite it so
@@ -737,15 +714,8 @@ index:  .byte   0
 ;;; Output: A,X = Address
 
 .proc GetFileEntryAddr
-        addr := selector_list + kSelectorListEntriesOffset
-        jsr     main::ATimes16
-        clc
-        adc     #<addr
-        tay
-        txa
-        adc     #>addr
-        tax
-        tya
+        jsr     main::CalcSelectorListEntryOffset
+        addax16 #selector_list + kSelectorListEntriesOffset
         rts
 .endproc ; GetFileEntryAddr
 
@@ -755,16 +725,8 @@ index:  .byte   0
 ;;; Output: A,X = Address
 
 .proc GetFilePathAddr
-        addr := selector_list + kSelectorListPathsOffset
-
-        jsr     main::ATimes64
-        clc
-        adc     #<addr
-        tay
-        txa
-        adc     #>addr
-        tax
-        tya
+        jsr     main::CalcSelectorListPathOffset
+        addax16 #selector_list + kSelectorListPathsOffset
         rts
 .endproc ; GetFilePathAddr
 
@@ -774,14 +736,8 @@ index:  .byte   0
 ;;; Output: A,X = Address
 
 .proc GetResourceEntryAddr
-        jsr     main::ATimes16
-        clc
-        adc     #<run_list_entries
-        tay
-        txa
-        adc     #>run_list_entries
-        tax
-        tya
+        jsr     main::CalcSelectorListEntryOffset
+        addax16 #run_list_entries
         rts
 .endproc ; GetResourceEntryAddr
 
@@ -791,14 +747,8 @@ index:  .byte   0
 ;;; Output: A,X = Address
 
 .proc GetResourcePathAddr
-        jsr     main::ATimes64
-        clc
-        adc     #<main::run_list_paths
-        tay
-        txa
-        adc     #>main::run_list_paths
-        tax
-        tya
+        jsr     main::CalcSelectorListPathOffset
+        addax16 #main::run_list_paths
         rts
 .endproc ; GetResourcePathAddr
 
@@ -946,9 +896,8 @@ failed:
     END_IF
 
         ;; Special case
-    IF A = #ERR_VOL_NOT_FOUND
-        lda     #kErrInsertSystemDisk ; Try Again/Cancel
-    END_IF
+        IF A = #ERR_VOL_NOT_FOUND \
+          THEN lda #kErrInsertSystemDisk ; Try Again/Cancel
         jsr     JUMP_TABLE_SHOW_ALERT ; arbitrary ProDOS error
         ;; Responses are either OK or Try Again/Cancel
         cmp     #kAlertResultTryAgain
@@ -960,15 +909,25 @@ retry_flag:        .byte   0 ; bit7
 ;;; ============================================================
 
 .proc IsEntryCallback
-        tay
-        ldx     entries_flag_table,y ; set N appropriately
+    IF A < #kSelectorListNumPrimaryRunListEntries
+        sec
+        sbc     num_primary_run_list_entries ; N=1 if valid
+        eor     #$80            ; now N=0 if valid
+        rts
+    END_IF
+
+        sec
+        sbc     #kSelectorListNumPrimaryRunListEntries
+        sec
+        sbc     num_secondary_run_list_entries ; N=1 if valid
+        eor     #$80            ; now N=0 if valid
         rts
 .endproc ; IsEntryCallback
 
 .proc DrawEntryCallback
         addr := selector_list + kSelectorListEntriesOffset
 
-        jsr     main::ATimes16
+        jsr     main::CalcSelectorListEntryOffset
         clc
         adc     #<addr
         pha

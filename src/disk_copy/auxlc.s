@@ -35,6 +35,9 @@ kAlertMsgInsertDestinationOrCancel = 10 ; No bell, *
 ;;; Y identifies a removable volume. In that case, the alert will
 ;;; automatically be dismissed when a disk is inserted.
 
+kInsertNormal = 0
+kInsertAutoDismiss = $80
+
 ;;; ============================================================
 
         ASSERT_ADDRESS ::kSegmentAuxLCAddress, "Entry point"
@@ -525,7 +528,7 @@ InitDialog:
         ;; Prompt to insert source disk
 
 prompt_insert_source:
-        CALL    ShowAlertDialog, X=#0, A=#kAlertMsgInsertSource ; X=0 means just show alert
+        CALL    ShowAlertDialog, X=#kInsertNormal, A=#kAlertMsgInsertSource
     IF A <> #kAlertResultOK
         jmp     InitDialog      ; Cancel
     END_IF
@@ -571,7 +574,7 @@ check_source_finish:
         ;; --------------------------------------------------
         ;; Prompt to insert destination disk
 
-        CALL    ShowAlertDialog, X=#0, A=#kAlertMsgInsertDestination ; X=0 means just show alert
+        CALL    ShowAlertDialog, X=#kInsertNormal, A=#kAlertMsgInsertDestination
     IF A <> #kAlertResultOK
         jmp     InitDialog      ; Cancel
     END_IF
@@ -806,7 +809,7 @@ check:  lda     current_drive_selection
 
         message := *+1
         lda     #SELF_MODIFIED_BYTE
-        CALL    ShowAlertDialog, X=#$80 ; X != 0 means Y=unit number, auto-dismiss
+        CALL    ShowAlertDialog, X=#kInsertAutoDismiss ; Y=unit number
 
       IF A <> #kAlertResultOK
         pla                     ; Cancel
@@ -838,19 +841,21 @@ loop:   jsr     SystemTask
 
 menu_command_table:
         ;; Apple menu
-        .addr   NoOp
+menu1:  .addr   NoOp
         .addr   NoOp
         .addr   NoOp
         .addr   NoOp
         .addr   NoOp
         ;; File menu
-        .addr   main::Quit
+menu2:  .addr   main::Quit
         ;; Facilities menu
-        .addr   CmdQuickCopy
+menu3:  .addr   CmdQuickCopy
         .addr   CmdDiskCopy
 
 menu_offset_table:
-        .byte   0, 5*2, 6*2
+        .byte   menu1 - menu_command_table
+        .byte   menu2 - menu_command_table
+        .byte   menu3 - menu_command_table
 
 ;;; ============================================================
 
@@ -902,11 +907,11 @@ ignore: RETURN  A=#$FF
         adc     menu_offset_table-1,x ; menu id is also 1-based
         tax
         copy16  menu_command_table-2,x, jump_addr ; 1-based (*2) to 0-based
-        jsr     do_jump
+        jsr     dispatch
         MGTK_CALL MGTK::HiliteMenu, hilitemenu_params
         jmp     EventLoop
 
-do_jump:
+dispatch:
         jump_addr := *+1
         jmp     SELF_MODIFIED
 .endproc ; HandleMenuSelection
@@ -2048,7 +2053,7 @@ find_in_alert_table:
 ;;; --------------------------------------------------
 ;;; Inputs: X,Y = volume name
 ;;; Output: `confirm_erase_buf` populated
-;;; Scrambles $06...$08
+;;; Scrambles: $06...$08
 
 .proc _ComposeConfirmErase
         buf := confirm_erase_buf
