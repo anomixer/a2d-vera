@@ -648,9 +648,9 @@ unit_num:
         BREAK_IF A = count
 
         ;; Copy entry name into place
-        jsr     main::ATimes16  ; A = `index`
+        jsr     main::CalcSelectorListEntryOffset  ; A = `index`
         addax   #selector_list_data_buf + kSelectorListEntriesOffset, ptr1
-        CALL    main::ATimes16, A=index
+        CALL    main::CalcSelectorListEntryOffset, A=index
         addax   #run_list_entries, ptr2
         jsr     _CopyPtr1ToPtr2
 
@@ -659,9 +659,9 @@ unit_num:
         copy8   (ptr1),y, (ptr2),y
 
         ;; Copy entry path into place
-        CALL    main::ATimes64, A=index
+        CALL    main::CalcSelectorListPathOffset, A=index
         addax   #selector_list_data_buf + kSelectorListPathsOffset, ptr1
-        CALL    main::ATimes64, A=index
+        CALL    main::CalcSelectorListPathOffset, A=index
         addax   #main::run_list_paths, ptr2
         jsr     _CopyPtr1ToPtr2
 
@@ -671,9 +671,9 @@ unit_num:
     END_IF
 
         ;; No separator if it is last
-    IF u8 selector_menu = #kSelectorMenuFixedItems
-        dec     selector_menu
-    END_IF
+        IF u8 selector_menu = #kSelectorMenuFixedItems \
+          THEN dec selector_menu
+
         jmp     end_of_scope
 
 index:  .byte   0
@@ -838,9 +838,8 @@ process_block:
         tay
     DO
         lda     name_buf,y
-      IF A = #'.'
-        lda     #' '
-      END_IF
+        IF A = #'.' \
+          THEN lda #' '
         sta     (da_ptr),y
     WHILE dey : NOT_ZERO
 
@@ -891,9 +890,8 @@ name_buf:       .res    ::kDAMenuItemSize, 0
 
 end:
         ;; No separator if it is last
-    IF u8 apple_menu = #kAppleMenuFixedItems
-        dec     apple_menu
-    END_IF
+        IF u8 apple_menu = #kAppleMenuFixedItems \
+          THEN dec apple_menu
 
         FALL_THROUGH_TO PopulateStartupMenu
 
