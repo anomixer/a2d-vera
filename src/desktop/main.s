@@ -37,14 +37,14 @@ JT_ACTIVATE_WINDOW:     jmp     ActivateReloadAndRefreshWindow ; *
 JT_SHOW_ALERT:          jmp     ShowAlert               ; *
 JT_SHOW_ALERT_PARAMS:   jmp     ShowAlertStruct         ; *
 JT_LAUNCH_FILE:         jmp     LaunchFileByPath
-JT_SHOW_FILE:           jmp     ShowFileIconForPath     ; *
+JT_SHOW_FILE:           jmp     SelectAndShowFileIconForPath ; *
 JT_RESTORE_OVL:         jmp     RestoreOverlayBuffer    ; *
 JT_COLOR_MODE:          jmp     SetColorMode            ; *
 JT_MONO_MODE:           jmp     SetMonoMode             ; *
 JT_RGB_MODE:            jmp     SetRGBMode              ; *
 JT_RESTORE_SYS:         jmp     RestoreSystem           ; *
 JT_GET_SEL_COUNT:       jmp     GetSelectionCount       ; *
-JT_GET_SEL_ICON:        jmp     GetSelectedIcon         ; *
+JT_GET_SEL_ICON:        jmp     GetSelectedIconByIndex  ; *
 JT_GET_SEL_WIN:         jmp     GetSelectionWindow      ; *
 JT_GET_WIN_PATH:        jmp     GetWindowPath           ; *
 JT_HILITE_MENU:         jmp     ToggleMenuHilite        ; *
@@ -455,8 +455,6 @@ dispatch_table:
         .addr   CmdSelectorItem
         ASSERT_ADDRESS_TABLE_SIZE menu7_start, ::kMenuSizeSelector
 
-        menu_end := *
-
         ;; indexed by menu id-1
 offset_table:
         .byte   menu1_start - dispatch_table
@@ -466,8 +464,7 @@ offset_table:
         .byte   menu5_start - dispatch_table
         .byte   menu6_start - dispatch_table
         .byte   menu7_start - dispatch_table
-        .byte   menu_end - dispatch_table
-        ASSERT_TABLE_SIZE offset_table, ::kMenuNumItems+1
+        ASSERT_TABLE_SIZE offset_table, ::kMenuNumItems
 .endproc ; MenuDispatch
 
 ;;; ============================================================
@@ -949,7 +946,7 @@ prev_selected_icon:
 
 ;;; Inputs: `drag_drop_params::target`
 ;;; Assert: If target is a file icon, icon is in active window.
-;;; Trashes $06
+;;; Scrambles: $06
 .proc _MaybeStashDropTargetName
         ;; Flag as not stashed
         copy8   #0, stashed_name
@@ -973,7 +970,7 @@ prev_selected_icon:
 ;;; --------------------------------------------------
 ;;; Outputs: `drag_drop_params::target` updated if needed
 ;;; Assert: `_MaybeStashDropTargetName` was previously called
-;;; Trashes $06
+;;; Scrambles: $06
 
 .proc _MaybeUpdateDropTargetFromName
         ;; Did we previously stash an icon's name?
@@ -1928,7 +1925,7 @@ _CheckBasisSystem        := _CheckBasixSystemImpl::basis
         CALL    GetIconToAnimate, AX=#src_path_buf
         tay
         plax
-        jmp     InvokeDeskAccWithIcon
+        jmp     InvokeDeskAccByPathWithIcon
 .endproc ; _InvokePreview
 
 ;;; --------------------------------------------------
@@ -1941,7 +1938,7 @@ _CheckBasisSystem        := _CheckBasixSystemImpl::basis
 
 ;;; --------------------------------------------------
 
-;;; Trashes: `INVOKER_INTERPRETER`
+;;; Scrambles: `INVOKER_INTERPRETER`
 .proc _MakeSrcPathAbsolute
         ;; Already absolute?
     IF u8 src_path_buf+1 <> #'/'
@@ -2036,7 +2033,7 @@ check_header:
 
         CALL    GetIconToAnimate, AX=#tmp_path_buf
         tay
-        FALL_THROUGH_TO InvokeDeskAccWithIcon, AX=#tmp_path_buf
+        FALL_THROUGH_TO InvokeDeskAccByPathWithIcon, AX=#tmp_path_buf
 .endproc ; InvokeDeskAccByPath
 
 ;;; ============================================================
@@ -2045,7 +2042,7 @@ check_header:
 ;;;        Y = icon id to animate ($FF for none)
 
         PROC_USED_IN_OVERLAY    ; Prevent DA overlay from trashing SMC
-.proc InvokeDeskAccWithIcon
+.proc InvokeDeskAccByPathWithIcon
         stax    open_params::pathname
 
         tya
@@ -2121,7 +2118,7 @@ main_length:    .word   0
         DEFINE_READWRITE_PARAMS read_params, DA_LOAD_ADDRESS, kDAMaxSize
         DEFINE_CLOSE_PARAMS close_params
 
-.endproc ; InvokeDeskAccWithIcon
+.endproc ; InvokeDeskAccByPathWithIcon
 
 ;;; ============================================================
 ;;; Copy the string at $06 to target at A,X
@@ -2166,7 +2163,7 @@ main_length:    .word   0
 ;;; ============================================================
 ;;; Uppercase a string
 ;;; Input: A,X = Address
-;;; Trashes $06
+;;; Scrambles: $06
 
         PROC_USED_IN_FORMAT_ERASE_OVERLAY
 .proc UpcaseString
@@ -2487,12 +2484,12 @@ entry_num:
         ptr := $06
 
     IF A < #kSelectorListNumPrimaryRunListEntries
-        jsr     ATimes16
+        jsr     CalcSelectorListEntryOffset
         addax   #run_list_entries, ptr
         rts
     END_IF
 
-        jsr     ATimes16
+        jsr     CalcSelectorListEntryOffset
         addax   #SELECTOR_FILE_BUF + kSelectorListEntriesOffset, ptr
         rts
 .endproc ; _SetEntryPtr
@@ -2507,12 +2504,12 @@ entry_num:
         ptr := $06
 
     IF A < #kSelectorListNumPrimaryRunListEntries
-        jsr     ATimes64
+        jsr     CalcSelectorListPathOffset
         addax   #run_list_paths, ptr
         rts
     END_IF
 
-        jsr     ATimes64
+        jsr     CalcSelectorListPathOffset
         addax   #SELECTOR_FILE_BUF + kSelectorListPathsOffset, ptr
         rts
 .endproc ; _SetEntryPathPtr
@@ -3015,7 +3012,7 @@ start:
         jsr     SaveWindows
 
         ;; Smuggle through the selected unit, if any.
-        jsr     GetSelectedUnitNum
+        jsr     GetSingleSelectedUnitNum
         sta     DISK_COPY_INITIAL_UNIT_NUM
 
         MLI_CALL OPEN, open_params
@@ -3106,7 +3103,7 @@ start:
         RTS_IF NE
 
         ;; Select and rename the file
-        jmp     TriggerRenameForFileIconWithStashedName
+        jmp     SelectAndRenameIconByStashedName
 
         ;; --------------------------------------------------
 error:
@@ -3119,7 +3116,7 @@ CmdNewFolder    := CmdNewFolderImpl::start
 ;;; Select and scroll into view an icon in the active window.
 ;;; Inputs: A,X = name
 ;;; Output: C=0 on success
-;;; Trashes $06
+;;; Scrambles: $06
 
 .proc SelectFileIconByName
         CALL    FindIconByName, Y=active_window_id
@@ -3164,7 +3161,7 @@ CmdNewFolder    := CmdNewFolderImpl::start
 ;;; ============================================================
 ;;; Input: $06 has name
 ;;; Output: A = icon id (and Z=0), or A=0 and Z=1 if not found
-;;; Trashes $08
+;;; Scrambles: $08
 
 .proc FindIconByNameInCachedWindow
         ptr_icon_name := $08
@@ -3201,7 +3198,7 @@ CmdNewFolder    := CmdNewFolderImpl::start
 ;;; Take the name in `stashed_name` and "increment it":
 ;;; * If ends in dot-digits, increment (adjusting length if needed)
 ;;; * Otherwise, append ".2" (shrinking if needed)
-;;; Trashes $10...$1F
+;;; Scrambles: $10...$1F
 
 .proc SpinName
         digits := $10
@@ -3684,7 +3681,7 @@ RefreshActiveWindow := RefreshActiveWindowImpl::entry3
 
         copy8   #0, text_input_buf
 
-        jsr     GetSelectedUnitNum
+        jsr     GetSingleSelectedUnitNum
         sta     unit_num
     IF NOT ZERO
         jsr     GetSingleSelectedIcon
@@ -3725,7 +3722,7 @@ FormatUnitNum := CmdFormatEraseDiskImpl::unit
 
 ;;; Inputs: A=unit number if a single volume is selected, 0 otherwise
 
-.proc GetSelectedUnitNum
+.proc GetSingleSelectedUnitNum
         ;; Get single selected volume icon (or fail)
         lda     selected_window_id
         bne     fail            ; not the desktop
@@ -3740,7 +3737,7 @@ fail:   RETURN  A=#0
 found:  lda     DEVLST,x
         and     #UNIT_NUM_MASK
         rts
-.endproc ; GetSelectedUnitNum
+.endproc ; GetSingleSelectedUnitNum
 
 ;;; ============================================================
 
@@ -3820,10 +3817,10 @@ found:  lda     DEVLST,x
 
 ;;; ============================================================
 
-.proc TriggerRenameForFileIconWithStashedName
+.proc SelectAndRenameIconByStashedName
         CALL    SelectFileIconByName, AX=#stashed_name
         FALL_THROUGH_TO CmdRename
-.endproc ; TriggerRenameForFileIconWithStashedName
+.endproc ; SelectAndRenameIconByStashedName
 
 ;;; ============================================================
 
@@ -3921,7 +3918,7 @@ CmdRenameWithDefaultNameGiven := CmdRename::ep2 ; A,X = name
         RTS_IF NOT_ZERO
 
         ;; Select and rename the file
-        jmp     TriggerRenameForFileIconWithStashedName
+        jmp     SelectAndRenameIconByStashedName
 
         ;; --------------------------------------------------
 error:
@@ -4328,7 +4325,7 @@ file_char:
     DO
         index := *+1
         lda     #SELF_MODIFIED_BYTE
-        jsr     GetNthSelectableIconName
+        jsr     GetNthKeyboardSelectableIconName
         stax    ptr
 
         ;; NOTE: Can't use `CompareStrings` as we want to match
@@ -4415,7 +4412,7 @@ typedown_buf:
 
         RTS_IF X < #2
 
-        copy16  #GetNthSelectableIconName, Quicksort_GetPtrProc
+        copy16  #GetNthKeyboardSelectableIconName, Quicksort_GetPtrProc
         copy16  #CompareStrings, Quicksort_CompareProc
         copy16  #_SwapProc, Quicksort_SwapProc
 
@@ -4432,12 +4429,12 @@ typedown_buf:
 ;;; above functions, return ptr to nth icon's name in A,X
 ;;; Input: A = index
 ;;; Output: A,X = icon name pointer
-.proc GetNthSelectableIconName
+.proc GetNthKeyboardSelectableIconName
         buffer := $1800
 
         tax
         TAIL_CALL GetIconName, A=buffer+1,x ; A = icon num
-.endproc ; GetNthSelectableIconName
+.endproc ; GetNthKeyboardSelectableIconName
 
 ;;; ============================================================
 ;;; Compare strings at $06 (1) and $08 (2). Case insensitive.
@@ -4982,7 +4979,7 @@ _PreamblePreCached:
 .endproc ; _SetVThumbFromViewport
 
 ;;; Input: X=axis (`MGTK::Point::xcoord` or `MGTK::Point::ycoord`)
-;;; Scrambles A,X,Y
+;;; Scrambles: A,X,Y
 .proc _CalcThumbFromViewport
         sub16   viewport+MGTK::Rect::topleft,x, ubox+MGTK::Rect::topleft,x, setthumb_muldiv_params::number
         sub16   ubox+MGTK::Rect::bottomright,x, ubox+MGTK::Rect::topleft,x, tmpw
@@ -5211,16 +5208,15 @@ common:
         inc     path_buf
         copy8   #'/', path_buf+1
 
-close_loop:
+      REPEAT
         ;; NOTE: This is called within loop because the list
         ;; (`found_windows_count` / `found_windows_list`) is trashed
         ;; during close when animating window.
         CALL    FindWindowsForPrefix, AX=#path_buf
         ldx     found_windows_count
-      IF NOT_ZERO
+        BREAK_IF ZERO
         CALL    CloseWindow, A=found_windows_list-1,x
-        jmp     close_loop
-      END_IF
+      FOREVER
     END_IF
 
         ;; --------------------------------------------------
@@ -5232,7 +5228,7 @@ close_loop:
         ldy     devlst_index
         copy8   device_to_icon_map,y, icon_param
     IF NOT_ZERO
-        jsr     RemoveIconFromWindow
+        jsr     RemoveIconFromCachedWindow
         dec     icon_count
         CALL    FreeDesktopIconPosition, A=icon_param
         ITK_CALL IconTK::EraseIcon, icon_param
@@ -5268,32 +5264,32 @@ close_loop:
         ;; Error cases:
 
         ;; Always show this error
-        cmp     #ERR_DUPLICATE_VOLUME
-        beq     show_error
+        IF A = #ERR_DUPLICATE_VOLUME \
+          GOTO show_error
 
         ;; Per Technical Note: ProDOS #21
         ;; https://prodos8.com/docs/technote/21/
         ;; `ERR_DEVICE_OFFLINE`: "... there is no disk in the drive."
         ;; ... so ignore
-        cmp     #ERR_DEVICE_OFFLINE
-        beq     ret
+        IF A = #ERR_DEVICE_OFFLINE \
+          GOTO ret
 
         ;; `ERR_IO_ERROR`: "... the disk in the drive is either
         ;; damaged or blank (not formatted)." - but this seems to be
         ;; returned for empty Disk II and SmartPort devices, so we
         ;; ignore it.
-        cmp     #ERR_IO_ERROR
-        beq     ret
+        IF A = #ERR_IO_ERROR \
+          GOTO ret
 
     IF A = #ERR_NOT_PRODOS_VOLUME
         CALL    ShowAlertParams, Y=#AlertButtonOptions::OKCancel, AX=#aux::str_alert_unreadable_format
-        cmp     #kAlertResultCancel
-        beq     ret
+        IF A = #kAlertResultCancel \
+          GOTO ret
 
         ldy     devlst_index
         lda     DEVLST,y
         and     #UNIT_NUM_MASK
-        jmp     FormatUnitNum
+        TAIL_CALL FormatUnitNum
     END_IF
 
     IF A = #ERR_DEVICE_NOT_CONNECTED
@@ -5310,8 +5306,8 @@ close_loop:
         ;; shown if there is an unexpected type of error (i.e. not one
         ;; of the above) when polling or as explicit command
         ;; (originally Check > Slot S drive D).
-        bit     show_unexpected_errors_flag
-        bmi     show_error
+        IF bit show_unexpected_errors_flag : NS \
+          GOTO show_error
 
 ret:    rts
 
@@ -5401,10 +5397,7 @@ arbitrary_target:
         CALL    GetIconPath, A=selected_icon_list ; `operation_src_path` set to path; A=0 on success
         jne     ShowAlert       ; `ERR_INVALID_PATHNAME`
 
-        ldx     #kHeaderSize-1
-    DO
-        copy8   header,x, link_struct,x
-    WHILE dex : POS
+        COPY_BYTES kHeaderSize, header, link_struct
 
         COPY_STRING operation_src_path, link_struct::path
         lda     link_struct::path
@@ -5440,8 +5433,8 @@ arbitrary_target:
         CALL    AppendFilenameToDstPath, AX=#stashed_name
         jsr     GetDstFileInfo
       IF CS
-        BREAK_IF A=#ERR_FILE_NOT_FOUND
-        bne     err
+        BREAK_IF A=#ERR_FILE_NOT_FOUND ; found an unused name
+        bne     err             ; always
       END_IF
         jsr     SpinName
     FOREVER
@@ -5469,11 +5462,11 @@ arbitrary_target:
 
         CALL    UpdateUsedFreeViaPath, AX=#dst_path_buf
 
-        jsr     ShowFileIconForPath
+        jsr     SelectAndShowFileIconForPath
         RTS_IF CS
 
         ;; Select and rename the file
-        jmp     TriggerRenameForFileIconWithStashedName
+        jmp     SelectAndRenameIconByStashedName
 
         ;; --------------------------------------------------
 err:    TAIL_CALL ShowAlertOption, X=#AlertButtonOptions::OK
@@ -5495,7 +5488,7 @@ err:    TAIL_CALL ShowAlertOption, X=#AlertButtonOptions::OK
 
         ;; File or volume?
         CALL    FindLastPathSegment, AX=#src_path_buf ; point Y at last '/'
-        IF Y <> src_path_buf JUMP ShowFileIconForPath
+        IF Y <> src_path_buf JUMP SelectAndShowFileIconForPath
 
         ;; Volume
         CALL    FindIconForPath, AX=#src_path_buf
@@ -6352,7 +6345,7 @@ OpenWindowForPath := OpenWindowImpl::for_path
 ;;; Mark the icon as not open; does not redraw as not all clients need
 ;;; it, e.g. if they will subsequently select the icon.
 ;;; Input: A = `icon_id`
-;;; Trashes $06
+;;; Scrambles: $06
 ;;; Note: Does not modify `window_to_dir_icon_table` entry
 
 .proc MarkIconNotDimmedNoDraw
@@ -6400,7 +6393,7 @@ OpenWindowForPath := OpenWindowImpl::for_path
 ;;; Output: C=0 on success
 ;;; Assert: Path is not a volume path
 
-.proc ShowFileIconForPath
+.proc SelectAndShowFileIconForPath
         jsr     SplitInvokerPath
 
         copy8   num_open_windows, old
@@ -6422,14 +6415,14 @@ OpenWindowForPath := OpenWindowImpl::for_path
         RETURN  C=0
 
 err:    RETURN  C=1
-.endproc ; ShowFileIconForPath
+.endproc ; SelectAndShowFileIconForPath
 
 ;;; ============================================================
 ;;; Find an icon for a given path. May be volume or in any window.
 ;;;
 ;;; Inputs: A,X has path
 ;;; Output: A=icon id and Z=0 if found, Z=1 if no match
-;;; Trashes $06 and `operation_dst_path`
+;;; Scrambles: $06 and `operation_dst_path`
 
 .proc FindIconForPath
         jsr     CopyToOperationDstPath
@@ -6522,8 +6515,7 @@ done:
 
         ptr := $06
 
-        ASSERT_EQUALS .sizeof(FileRecord), 32
-        jsr     ATimes32        ; A,X = A * 32
+        jsr     CalcFileRecordOffset
         addax   file_record_ptr, ptr
 
         ;; Copy into more convenient location (LCBANK1)
@@ -6624,7 +6616,7 @@ set_pos:
 
 ;;; ============================================================
 ;;; Populate `text_buffer2` with "12,345K"
-;;; Trashes: $06
+;;; Scrambles: $06
 
         PROC_USED_CLEARING_UPDATES
 .proc ComposeSizeString
@@ -6834,7 +6826,7 @@ done:
 ;;; Retrieve the `IconEntry::record_num` for a given icon.
 ;;; Input: A = icon id
 ;;; Output: A = icon's record index in its window
-;;; Trashes $06
+;;; Scrambles: $06
 
         PROC_USED_CLEARING_UPDATES
 .proc GetIconRecordNum
@@ -7637,7 +7629,7 @@ vol_blocks_used:  .word   0
 ;;;
 ;;; Input: A = `window_id`
 ;;; Output: $40...$4F holds copy of window's `MapInfo`
-;;; Trashes $06
+;;; Scrambles: $06
 
 window_mapinfo_cache := $40
 
@@ -7948,8 +7940,7 @@ scratch_space   := $804         ; can be used by comparison funcs
         tya
 
         ;; Calculate the pointer
-        ASSERT_EQUALS .sizeof(FileRecord), 32
-        jsr     ATimes32
+        jsr     CalcFileRecordOffset
 
         clc
         adc     list_start_ptr
@@ -8171,8 +8162,7 @@ END_PARAM_BLOCK
         dex
         txa
         pha                     ; A = record_num-1
-        ASSERT_EQUALS .sizeof(FileRecord), 32
-        jsr     ATimes32        ; A,X = A * 32
+        jsr     CalcFileRecordOffset
         record_ptr := $08
         addax   records_base_ptr, record_ptr
         pla                     ; A = record_num-1
@@ -8402,7 +8392,7 @@ records_base_ptr:
 ;;; does not depend on icon creation state.
 ;;; Input: A = window_od
 ;;; Output: A = entry count
-;;; Trashes $06
+;;; Scrambles: $06
 
         PROC_USED_CLEARING_UPDATES
 .proc GetFileRecordCountForWindow
@@ -8646,7 +8636,7 @@ map_delta_y:    .word   0
 ;;; Inits `map_delta_x` and `map_delta_y` for window/screen mapping
 ;;; for active window.
 ;;; Inputs: `active_window_id` set
-;;; Trashes: $08
+;;; Scrambles: $08
 
 .proc PrepActiveWindowScreenMapping
         FALL_THROUGH_TO PrepWindowScreenMapping, A=active_window_id
@@ -8860,7 +8850,7 @@ test_size:
         kMax525FloppyBlocks = 280
         kMax35FloppyBlocks = 1600
 
-        CALL    GetBlockCount, A=block_params::unit_num
+        CALL    _GetBlockCount, A=block_params::unit_num
     IF CC
         stax    blocks
         IF u16 blocks < #kMax525FloppyBlocks+1 GOTO f525
@@ -8877,14 +8867,11 @@ f35:    RETURN  AX=#dib_buffer+SPDIB::ID_String_Length, Y=#IconType::floppy800
 
 blocks: .word   0
 
-.endproc ; GetDeviceTypeImpl
-GetDeviceType := GetDeviceTypeImpl::start
-
 ;;; ============================================================
 ;;; Get the block count for a given unit number.
 ;;; Input: A=unit_number
 ;;; Output: C=0, blocks in A,X on success, C=1 on error
-.proc GetBlockCountImpl
+.proc _GetBlockCountImpl
         ;; Use $800 scratch space right after `dib_buffer`
         path := $880            ; becomes length-prefixed path
         buffer := path+1        ; length overwritten with '/'
@@ -8908,8 +8895,12 @@ start:  sta     on_line_params::unit_num
         ldax    file_info_params::aux_type
 
 ret:    rts
-.endproc ; GetBlockCountImpl
-GetBlockCount   := GetBlockCountImpl::start
+.endproc ; _GetBlockCountImpl
+_GetBlockCount   := _GetBlockCountImpl::start
+
+.endproc ; GetDeviceTypeImpl
+GetDeviceType := GetDeviceTypeImpl::start
+
 
 ;;; ============================================================
 ;;; Create Volume Icon
@@ -9091,7 +9082,9 @@ finish: jsr     PopPointers     ; do not tail-call optimise!
 
 ;;; ============================================================
 
-.proc RemoveIconFromWindow
+;;; NOTE: This is only used when checking drives, i.e. on volume
+;;; icons.
+.proc RemoveIconFromCachedWindow
         ldx     cached_window_icon_count
         dex
     DO
@@ -9101,13 +9094,12 @@ finish: jsr     PopPointers     ; do not tail-call optimise!
         rts
 
 remove:
+    DO
         copy8   cached_window_icon_list+1,x, cached_window_icon_list,x
-        inx
-        cpx     cached_window_icon_count
-        bne     remove
+    WHILE inx : X <> cached_window_icon_count
         dec     cached_window_icon_count
         rts
-.endproc ; RemoveIconFromWindow
+.endproc ; RemoveIconFromCachedWindow
 
 ;;; ============================================================
 ;;; Search the window->dir_icon mapping table.
@@ -12536,8 +12528,7 @@ ignore:
 
         ;; Look up the FileRecord within the list.
         pla                     ; A = index
-        ASSERT_EQUALS .sizeof(FileRecord), 32
-        jsr     ATimes32        ; A,X = index * 32
+        jsr     CalcFileRecordOffset
         addax   file_record_ptr, file_record_ptr
         rts
 .endproc ; SetFileRecordPtrFromIconPtr
@@ -12720,7 +12711,7 @@ list:   .word   0               ; 0 items in list
 ;;; Outputs: Path updated.
 ;;; Modifies `tmp_path_buf` and $1F00
 ;;; NOTE: Sometimes called with LCBANK2; must not assume LCBANK1 present!
-;;; Trashes $06
+;;; Scrambles: $06
 
 .proc _UpdateTargetPath
         dst := $06
@@ -12768,7 +12759,7 @@ assign: ldy     new_path
 ;;; Inputs: A,X = pointer to path to update
 ;;; Outputs: Z=0 if updated, Z=1 if no change
 ;;; NOTE: Sometimes called with LCBANK2; must not assume LCBANK1 present!
-;;; Trashes $06, $08
+;;; Scrambles: $06, $08
 
 .proc _MaybeUpdateTargetPath
         ptr := $08
@@ -13279,7 +13270,7 @@ RestoreOverlayBuffer    := LoadDynamicRoutineImpl::buffer
 ;;; Remove segment from path at A,X
 ;;; Input: A,X = path to modify
 ;;; Output: A = length
-;;; Trashes $06
+;;; Scrambles: $06
 
         PROC_USED_IN_OVERLAY
 .proc RemovePathSegment
@@ -13307,26 +13298,28 @@ found_slash:
 
 ;;; ============================================================
 
-
-;;; A,X = A * 16
         PROC_USED_IN_OVERLAY
-.proc ATimes16
+.proc CalcSelectorListEntryOffset
+        ASSERT_EQUALS ::kSelectorListNameLength, 16
+        ;; A,X = A * 16
         ldx     #4
         bne     AShiftX       ; always
-.endproc ; ATimes16
+.endproc ; CalcSelectorListEntryOffset
 
-;;; A,X = A * 32
         PROC_USED_CLEARING_UPDATES
-.proc ATimes32
+.proc CalcFileRecordOffset
+        ASSERT_EQUALS .sizeof(FileRecord), 32
+        ;; A,X = A * 32
         ldx     #5
         bne     AShiftX       ; always
-.endproc ; ATimes32
+.endproc ; CalcFileRecordOffset
 
-;;; A,X = A * 64
         PROC_USED_IN_OVERLAY
-.proc ATimes64
+.proc CalcSelectorListPathOffset
+        ASSERT_EQUALS ::kSelectorListPathLength, 64
+        ;; A,X = A * 64
         FALL_THROUGH_TO AShiftX, X=#6
-.endproc ; ATimes64
+.endproc ; CalcSelectorListPathOffset
 
 ;;; A,X = A << X
 .proc AShiftX
@@ -13348,7 +13341,7 @@ found_slash:
 ;;; https://web.archive.org/web/2007/http://web.pdx.edu/~heiss/technotes/gsos/tn.gsos.08.html
 ;;; Input: A,X = name
 ;;; Output: A,X = case bits
-;;; Trashes: $06/$08
+;;; Scrambles: $06/$08
 
         PROC_USED_IN_FORMAT_ERASE_OVERLAY
 .proc CalculateCaseBits
@@ -14292,7 +14285,7 @@ ret:    rts
 ;;; ============================================================
 
 ;;; Input: A,X = string to copy
-;;; Trashes: $06
+;;; Scrambles: $06
         PROC_USED_IN_OVERLAY
 .proc CopyToPathBuf0
         ptr1 := $06
@@ -14303,7 +14296,7 @@ ret:    rts
 ;;; ============================================================
 
 ;;; Input: A,X = string to copy
-;;; Trashes: $06
+;;; Scrambles: $06
 .proc CopyToOperationDstPath
         ptr1 := $06
         stax    ptr1
@@ -14371,10 +14364,10 @@ ret:    rts
 ;;; Input: A = index in selection
 ;;; Output: A,X = IconEntry address
 
-.proc GetSelectedIcon
+.proc GetSelectedIconByIndex
         tax
         TAIL_CALL GetIconEntry, A=selected_icon_list,x
-.endproc ; GetSelectedIcon
+.endproc ; GetSelectedIconByIndex
 
 ;;; ============================================================
 ;;; Output: A = window with selection, 0 if desktop
